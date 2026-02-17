@@ -191,7 +191,7 @@ def _build_order_table(result: dict, request: dict, logistics: dict) -> list[lis
     """Build order line items table with measure unit conversion."""
     header = [
         "#", "Продукт", "Код", "Наименование", "Марка",
-        "Мярка", "Бр/Мярка", "К-во", "Общо бр.",
+        "МЕ", "Бр/МЕ", "К-во", "Общо бр.",
         "Ед. цена EUR", "Отстъпка %",
         "Нето ед. цена EUR\n(без ДДС)",
         "Общо EUR\n(без ДДС)",

@@ -373,7 +373,7 @@ with col_a:
     del_options = [dt.get(term_key, dt.get("name_bg", "")) for dt in delivery_terms_list] if delivery_terms_list else ["Door delivery"]
     delivery_terms = st.selectbox(t("delivery_terms"), del_options, key=f"ord_del_terms_{_v}")
 
-    default_delivery_date = date.today() + timedelta(days=14)
+    default_delivery_date = date.today() + timedelta(days=1)
     delivery_date = st.date_input(t("delivery_date"), value=default_delivery_date, key=f"ord_del_date_{_v}")
 
 with col_b:

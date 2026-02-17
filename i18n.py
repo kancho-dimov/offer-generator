@@ -90,7 +90,7 @@ Use the menu on the left to navigate:
     "no_offers_to_convert": {"bg": "Няма налични оферти за конвертиране.", "en": "No offers available for conversion."},
     "offer_data_missing": {"bg": "Файлът с данни от офертата не е наличен. Добавете продукти ръчно.", "en": "Offer data file not available. Add products manually."},
     "products": {"bg": "2. Продукти", "en": "2. Products"},
-    "measure": {"bg": "Мярка", "en": "Unit"},
+    "measure": {"bg": "МЕ", "en": "Unit"},
     "pcs_label": {"bg": "бр.", "en": "pcs"},
     "carton_label": {"bg": "кш.", "en": "ctn"},
     "terms": {"bg": "3. Условия", "en": "3. Terms"},
