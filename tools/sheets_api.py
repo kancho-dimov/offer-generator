@@ -40,7 +40,7 @@ def write_sheet(
     spreadsheet_id: str,
     range_name: str,
     values: list[list],
-    input_option: str = "USER_ENTERED",
+    input_option: str = "RAW",
 ) -> dict:
     """
     Write data to a Google Sheet.
@@ -49,7 +49,7 @@ def write_sheet(
         spreadsheet_id: The Google Sheet ID
         range_name: Sheet range like "Sheet1!A1"
         values: List of rows to write
-        input_option: "USER_ENTERED" (parsed) or "RAW"
+        input_option: "RAW" (default, safe) or "USER_ENTERED" (for formulas)
 
     Returns:
         API response dict.
@@ -74,7 +74,7 @@ def append_sheet(
     spreadsheet_id: str,
     range_name: str,
     values: list[list],
-    input_option: str = "USER_ENTERED",
+    input_option: str = "RAW",
 ) -> dict:
     """
     Append rows to a Google Sheet (adds after existing data).
@@ -83,7 +83,7 @@ def append_sheet(
         spreadsheet_id: The Google Sheet ID
         range_name: Sheet range like "Sheet1!A1"
         values: List of rows to append
-        input_option: "USER_ENTERED" (parsed) or "RAW"
+        input_option: "RAW" (default, safe) or "USER_ENTERED" (for formulas)
 
     Returns:
         API response dict.

@@ -196,7 +196,7 @@ def update_catalog(force: bool = False):
 
     # Clear wider range to remove old gallery/thumbnail columns
     clear_sheet(MASTER_CATALOG_ID, f"'{MASTER_DB_TAB}'!A:Z")
-    result = write_sheet(MASTER_CATALOG_ID, f"'{MASTER_DB_TAB}'!A1", all_data)
+    result = write_sheet(MASTER_CATALOG_ID, f"'{MASTER_DB_TAB}'!A1", all_data, input_option="USER_ENTERED")
     print(f"  Written {result.get('updatedRows', 0)} rows (including header)")
     print(f"  Skipped: {skipped}")
     print("  Done!")

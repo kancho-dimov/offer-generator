@@ -402,7 +402,7 @@ def generate_order(request: dict | None = None) -> str:
     sheet_id = meta["sheets"][0]["properties"]["sheetId"]
 
     # Write data
-    write_sheet(spreadsheet_id, "'Поръчка'!A1", all_rows)
+    write_sheet(spreadsheet_id, "'Поръчка'!A1", all_rows, input_option="USER_ENTERED")
     print(f"  Written {len(all_rows)} rows")
 
     # Apply formatting (reuse offer formatter with order-specific params)

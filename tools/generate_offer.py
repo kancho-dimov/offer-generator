@@ -532,7 +532,7 @@ def generate_offer(request: dict | None = None) -> str:
     ).execute()
 
     # Write data
-    write_sheet(spreadsheet_id, f"'{tab_name}'!A1", all_rows)
+    write_sheet(spreadsheet_id, f"'{tab_name}'!A1", all_rows, input_option="USER_ENTERED")
     write_sheet(spreadsheet_id, "'Discount_Detail'!A1", detail_rows)
     print(f"  Written {len(all_rows)} rows to {tab_name}")
     print(f"  Written {len(detail_rows)} rows to Discount_Detail")

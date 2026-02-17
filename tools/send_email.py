@@ -17,11 +17,25 @@ Usage:
 
 import base64
 import html as html_module
+import re
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from tools.google_auth import get_credentials, get_drive_service, get_gmail_service
+
+# Basic email validation — rejects control characters, newlines, missing @
+_EMAIL_RE = re.compile(r"^[^@\s\r\n]+@[^@\s\r\n]+\.[^@\s\r\n]+$")
+
+
+def _validate_email(email: str) -> str:
+    """Validate and return a safe email address, or raise ValueError."""
+    email = email.strip()
+    if not email or not _EMAIL_RE.match(email):
+        raise ValueError(f"Invalid email address: {email!r}")
+    if any(c in email for c in ("\r", "\n", "\x00")):
+        raise ValueError(f"Email contains control characters: {email!r}")
+    return email
 from tools.sheets_api import read_sheet
 
 MASTER_CATALOG_ID = "1O1rD0PdKIIY8qKWkNsdElEcdsg1-JQQG1WmfuVXrUVY"
@@ -138,9 +152,10 @@ def _share_for_viewing(spreadsheet_url: str) -> None:
 
 def _add_view_button(body_html: str, spreadsheet_url: str) -> str:
     """Append a styled 'View online' button to the email HTML body."""
+    safe_url = spreadsheet_url if spreadsheet_url.startswith("https://") else "#"
     button_html = (
         '<br><p>'
-        f'<a href="{spreadsheet_url}" style="background-color: #0086CE; color: white; '
+        f'<a href="{safe_url}" style="background-color: #0086CE; color: white; '
         'padding: 10px 24px; text-decoration: none; border-radius: 4px; '
         'display: inline-block; font-family: Arial, sans-serif; font-size: 14px;">'
         'Преглед онлайн / View online</a>'
@@ -297,9 +312,7 @@ def send_offer_to_customer(
     email_override: str | None = None,
 ) -> dict:
     """Send an offer or pricelist to the customer with PDF attached."""
-    customer_email = email_override or customer.get("email", "")
-    if not customer_email:
-        raise ValueError(f"Customer {customer.get('customer_id')} has no email address")
+    customer_email = _validate_email(email_override or customer.get("email", ""))
 
     # Use overrides (from preview/edit) or generate defaults
     if subject_override and body_text_override:
@@ -317,7 +330,8 @@ def send_offer_to_customer(
         result = _send_with_pdf(customer_email, subject, body_html, pdf_data, filename)
     else:
         # Fallback: send with PDF download link if download failed
-        body_html += f'<p><a href="{pdf_url}">Изтегли PDF</a></p>'
+        safe_pdf = pdf_url if pdf_url.startswith("https://") else "#"
+        body_html += f'<p><a href="{safe_pdf}">Изтегли PDF</a></p>'
         result = _send_plain(customer_email, subject, body_html)
 
     print(f"  Email sent to {customer_email}: {subject}")
@@ -346,32 +360,37 @@ def send_order_to_cs(
 
     subject = f"Поръчка {order_number} | {customer.get('company_name', '')}"
 
+    _e = html_module.escape  # shorthand for escaping user data
+
     lines_html = ""
     if lines_summary:
         lines_html = "<table border='1' cellpadding='4' cellspacing='0' style='border-collapse:collapse; font-size:12px;'>"
         lines_html += "<tr><th>Код</th><th>Наименование</th><th>К-во</th><th>Ед.</th><th>Нето цена</th><th>Отстъпка</th><th>Общо</th></tr>"
         for line in lines_summary:
-            lines_html += f"<tr><td>{line.get('product_code','')}</td><td>{line.get('name','')}</td>"
-            lines_html += f"<td>{line.get('quantity','')}</td><td>{line.get('measure_unit','pcs')}</td>"
-            lines_html += f"<td>{line.get('net_price','')}</td><td>{line.get('discount','')}</td>"
-            lines_html += f"<td>{line.get('line_total','')}</td></tr>"
+            lines_html += f"<tr><td>{_e(str(line.get('product_code','')))}</td><td>{_e(str(line.get('name','')))}</td>"
+            lines_html += f"<td>{_e(str(line.get('quantity','')))}</td><td>{_e(str(line.get('measure_unit','pcs')))}</td>"
+            lines_html += f"<td>{_e(str(line.get('net_price','')))}</td><td>{_e(str(line.get('discount','')))}</td>"
+            lines_html += f"<td>{_e(str(line.get('line_total','')))}</td></tr>"
         lines_html += "</table>"
 
     addr = delivery_address or customer.get("delivery_address", "") or customer.get("address", "")
 
+    # Validate URLs before embedding in HTML
+    safe_sheet_url = spreadsheet_url if spreadsheet_url.startswith("https://") else "#"
+
     body = f"""
     <div style="font-family: Arial, sans-serif; max-width: 700px;">
-        <h2 style="color: #0086CE;">Поръчка {order_number}</h2>
+        <h2 style="color: #0086CE;">Поръчка {_e(order_number)}</h2>
         <table cellpadding="4" style="font-size: 13px;">
-            <tr><td><strong>Оферта:</strong></td><td>{offer_number or 'Без оферта'}</td></tr>
-            <tr><td><strong>Клиент:</strong></td><td>{customer.get('company_name', '')} ({customer.get('customer_id', '')})</td></tr>
-            <tr><td><strong>Лице за контакт:</strong></td><td>{customer.get('contact_name', '')}</td></tr>
-            <tr><td><strong>Тел/Email:</strong></td><td>{customer.get('phone', '')} / {customer.get('email', '')}</td></tr>
-            <tr><td><strong>Адрес на доставка:</strong></td><td>{addr}</td></tr>
-            <tr><td><strong>Търговски агент SAP:</strong></td><td>{sales_agent_code}</td></tr>
-            <tr><td><strong>Условия на доставка:</strong></td><td>{delivery_terms}</td></tr>
-            <tr><td><strong>Условия на плащане:</strong></td><td>{payment_terms}</td></tr>
-            <tr><td><strong>Дата на доставка:</strong></td><td>{delivery_date}</td></tr>
+            <tr><td><strong>Оферта:</strong></td><td>{_e(offer_number or 'Без оферта')}</td></tr>
+            <tr><td><strong>Клиент:</strong></td><td>{_e(customer.get('company_name', ''))} ({_e(customer.get('customer_id', ''))})</td></tr>
+            <tr><td><strong>Лице за контакт:</strong></td><td>{_e(customer.get('contact_name', ''))}</td></tr>
+            <tr><td><strong>Тел/Email:</strong></td><td>{_e(customer.get('phone', ''))} / {_e(customer.get('email', ''))}</td></tr>
+            <tr><td><strong>Адрес на доставка:</strong></td><td>{_e(addr)}</td></tr>
+            <tr><td><strong>Търговски агент SAP:</strong></td><td>{_e(sales_agent_code)}</td></tr>
+            <tr><td><strong>Условия на доставка:</strong></td><td>{_e(delivery_terms)}</td></tr>
+            <tr><td><strong>Условия на плащане:</strong></td><td>{_e(payment_terms)}</td></tr>
+            <tr><td><strong>Дата на доставка:</strong></td><td>{_e(delivery_date)}</td></tr>
             <tr><td><strong>Сума без ДДС:</strong></td><td>{total_excl_vat:.2f} EUR</td></tr>
             <tr><td><strong>Сума с ДДС:</strong></td><td>{total_incl_vat:.2f} EUR</td></tr>
         </table>
@@ -379,7 +398,7 @@ def send_order_to_cs(
         {lines_html}
         <br>
         <p>
-            <a href="{spreadsheet_url}" style="background-color: #0086CE; color: white;
+            <a href="{safe_sheet_url}" style="background-color: #0086CE; color: white;
                padding: 10px 20px; text-decoration: none; border-radius: 4px;
                display: inline-block; margin: 8px 0;">
                 Отвори поръчката
@@ -410,9 +429,7 @@ def send_order_to_customer(
     email_override: str | None = None,
 ) -> dict:
     """Send order confirmation to the customer with PDF only (no Sheet link)."""
-    customer_email = email_override or customer.get("email", "")
-    if not customer_email:
-        raise ValueError(f"Customer {customer.get('customer_id')} has no email address")
+    customer_email = _validate_email(email_override or customer.get("email", ""))
 
     # Use overrides (from preview/edit) or generate defaults
     if subject_override and body_text_override:
@@ -429,7 +446,8 @@ def send_order_to_customer(
         filename = f"{order_number.replace('/', '-')}.pdf"
         result = _send_with_pdf(customer_email, subject, body_html, pdf_data, filename)
     else:
-        body_html += f'<p><a href="{pdf_url}">Изтегли PDF</a></p>'
+        safe_pdf = pdf_url if pdf_url.startswith("https://") else "#"
+        body_html += f'<p><a href="{safe_pdf}">Изтегли PDF</a></p>'
         result = _send_plain(customer_email, subject, body_html)
 
     print(f"  Order confirmation sent to {customer_email}: {subject}")

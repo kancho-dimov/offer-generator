@@ -369,20 +369,32 @@ st.write(f"{t('logistics_count')} **{len(logistics)}**")
 uploaded = st.file_uploader(t("upload_logistics"), type=["xlsx"])
 if uploaded:
     import tempfile
+    import os
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        tmp.write(uploaded.read())
-        tmp_path = tmp.name
+    # Validate file size (max 50 MB)
+    max_size = 50 * 1024 * 1024
+    if uploaded.size > max_size:
+        st.error(f"File too large ({uploaded.size / 1024 / 1024:.1f} MB). Maximum: 50 MB.")
+    else:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(uploaded.read())
+            tmp_path = tmp.name
 
-    if st.button(t("import_btn"), type="primary"):
-        with st.spinner("..."):
-            try:
-                from tools.import_logistics import import_logistics
-                import_logistics(tmp_path)
-                st.success(t("import_success"))
-                st.cache_data.clear()
-            except Exception as e:
-                st.error(f"{t('import_error')} {e}")
+        if st.button(t("import_btn"), type="primary"):
+            with st.spinner("..."):
+                try:
+                    from tools.import_logistics import import_logistics
+                    import_logistics(tmp_path)
+                    st.success(t("import_success"))
+                    st.cache_data.clear()
+                except Exception as e:
+                    st.error(f"{t('import_error')} {e}")
+                finally:
+                    # Clean up temp file
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
 
 st.markdown("---")
 

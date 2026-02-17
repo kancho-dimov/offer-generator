@@ -20,10 +20,25 @@ def main():
     print("Waiting for Streamlit to start...")
     time.sleep(5)
 
-    # Start ngrok tunnel
+    # Start ngrok tunnel with basic auth protection
     try:
         from pyngrok import ngrok
-        tunnel = ngrok.connect(8501)
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+
+        # Require NGROK_AUTH env var for basic auth (user:password)
+        ngrok_basic_auth = os.getenv("NGROK_BASIC_AUTH", "")
+        if not ngrok_basic_auth:
+            print("WARNING: No NGROK_BASIC_AUTH set in .env!")
+            print("  Add NGROK_BASIC_AUTH=user:password to .env for security.")
+            print("  Anyone with the URL can access the app without auth.")
+            print()
+
+        connect_kwargs = {"addr": 8501}
+        if ngrok_basic_auth:
+            connect_kwargs["auth"] = ngrok_basic_auth
+        tunnel = ngrok.connect(**connect_kwargs)
         print()
         print("=" * 50)
         print(f"  iPhone URL: {tunnel.public_url}")
