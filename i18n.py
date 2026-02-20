@@ -381,9 +381,9 @@ BRAND_CSS = """
     /* === BUTTONS === */
     .stButton > button {
         background: linear-gradient(135deg, var(--accent-gold) 0%, #d4a455 100%) !important;
-        color: var(--primary-dark) !important;
+        color: #000000 !important;
         border: none !important;
-        font-weight: 600 !important;
+        font-weight: 700 !important;
         font-size: 0.95rem !important;
         letter-spacing: 0.5px !important;
         padding: 0.75rem 1.5rem !important;
@@ -392,6 +392,7 @@ BRAND_CSS = """
         box-shadow: 0 4px 15px rgba(201, 169, 97, 0.15) !important;
         text-transform: none !important;
         cursor: pointer !important;
+        text-shadow: none !important;
     }
 
     .stButton > button:hover {
