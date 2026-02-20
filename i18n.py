@@ -381,7 +381,7 @@ BRAND_CSS = """
     /* === BUTTONS === */
     .stButton > button {
         background: linear-gradient(135deg, var(--accent-gold) 0%, #d4a455 100%) !important;
-        color: #000000 !important;
+        color: #FFFFFF !important;
         border: none !important;
         font-weight: 700 !important;
         font-size: 0.95rem !important;
@@ -399,6 +399,7 @@ BRAND_CSS = """
         transform: translateY(-2px) !important;
         box-shadow: 0 6px 25px rgba(201, 169, 97, 0.25) !important;
         background: linear-gradient(135deg, #d4a455 0%, var(--accent-gold) 100%) !important;
+        color: #FFFFFF !important;
     }
 
     .stButton > button:active {
