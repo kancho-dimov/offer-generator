@@ -383,6 +383,7 @@ BRAND_CSS = """
         background: linear-gradient(135deg, #4a7c7e 0%, #2f5254 100%) !important;
         color: #f5f5f5 !important;
         border: none !important;
+        border-left: 4px solid #7cafb1 !important;
         font-weight: 700 !important;
         font-size: 0.95rem !important;
         letter-spacing: 0.5px !important;
@@ -400,6 +401,7 @@ BRAND_CSS = """
         box-shadow: 0 6px 25px rgba(74, 124, 126, 0.3) !important;
         background: linear-gradient(135deg, #5a8c8e 0%, #3f6264 100%) !important;
         color: #f5f5f5 !important;
+        border-left-color: #a5d4d7 !important;
     }
 
     .stButton > button:active {
