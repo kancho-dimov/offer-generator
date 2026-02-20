@@ -553,8 +553,19 @@ BRAND_CSS = """
         color: var(--text-primary) !important;
     }
 
+    [data-baseweb="checkbox"] label {
+        color: var(--text-primary) !important;
+        font-weight: 500 !important;
+    }
+
     [data-baseweb="checkbox"] input:checked + div {
-        background-color: var(--accent-gold) !important;
+        background-color: #4a7c7e !important;
+        border-color: #7cafb1 !important;
+    }
+
+    [data-baseweb="checkbox"] div {
+        background-color: var(--secondary-dark) !important;
+        border: 1px solid var(--border-subtle) !important;
     }
 
     /* === MODALS / EXPANDERS === */
