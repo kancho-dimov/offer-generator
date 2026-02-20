@@ -380,8 +380,8 @@ BRAND_CSS = """
 
     /* === BUTTONS === */
     .stButton > button {
-        background: linear-gradient(135deg, var(--accent-gold) 0%, #d4a455 100%) !important;
-        color: #1a1f2e !important;
+        background: linear-gradient(135deg, #4a7c7e 0%, #2f5254 100%) !important;
+        color: #f5f5f5 !important;
         border: none !important;
         font-weight: 700 !important;
         font-size: 0.95rem !important;
@@ -389,7 +389,7 @@ BRAND_CSS = """
         padding: 0.75rem 1.5rem !important;
         border-radius: 4px !important;
         transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
-        box-shadow: 0 4px 15px rgba(201, 169, 97, 0.15) !important;
+        box-shadow: 0 4px 15px rgba(74, 124, 126, 0.2) !important;
         text-transform: none !important;
         cursor: pointer !important;
         text-shadow: none !important;
@@ -397,14 +397,14 @@ BRAND_CSS = """
 
     .stButton > button:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 6px 25px rgba(201, 169, 97, 0.25) !important;
-        background: linear-gradient(135deg, #d4a455 0%, var(--accent-gold) 100%) !important;
-        color: #1a1f2e !important;
+        box-shadow: 0 6px 25px rgba(74, 124, 126, 0.3) !important;
+        background: linear-gradient(135deg, #5a8c8e 0%, #3f6264 100%) !important;
+        color: #f5f5f5 !important;
     }
 
     .stButton > button:active {
         transform: translateY(0) !important;
-        box-shadow: 0 2px 10px rgba(201, 169, 97, 0.15) !important;
+        box-shadow: 0 2px 10px rgba(74, 124, 126, 0.2) !important;
     }
 
     /* === INPUT FIELDS === */
