@@ -12,14 +12,37 @@ import sys
 import time
 from pathlib import Path
 
-import anthropic
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 
 TMP_DIR = Path(__file__).resolve().parent.parent / ".tmp"
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+_ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+
+
+def _claude(system: str, user: str, max_tokens: int = 1500) -> str:
+    """Call Anthropic REST API directly via httpx (avoids SDK connection issues)."""
+    with httpx.Client(timeout=120.0) as c:
+        resp = c.post(
+            _ANTHROPIC_URL,
+            headers={
+                "x-api-key": _ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": _ANTHROPIC_MODEL,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": [{"role": "user", "content": user}],
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["content"][0]["text"]
 
 SYSTEM_PROMPT = """You are a professional translator specializing in HVAC, plumbing, and heating
 equipment terminology. You translate from Romanian to Bulgarian for a B2B product catalog.
@@ -139,33 +162,23 @@ Return a JSON object with these fields:
 
 Return ONLY valid JSON, no other text."""
 
+    text = ""
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=1500,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        text = response.content[0].text.strip()
-        # Extract JSON from response (handle markdown code blocks)
+        text = _claude(SYSTEM_PROMPT, prompt, max_tokens=1500)
+        text = text.strip()
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
             text = text.split("```")[1].split("```")[0].strip()
-
         result = json.loads(text)
-        # Run validation pass
         validated = validate_translation(result)
         return validated
-
     except json.JSONDecodeError as e:
-        print(f"  JSON parse error: {e}")
-        print(f"  Raw response: {text[:200]}")
-        return None
+        print(f"  JSON parse error: {e} | Raw: {text[:300]}")
+        return {"_error": f"JSON parse error: {e}"}
     except Exception as e:
-        print(f"  Translation error: {e}")
-        return None
+        print(f"  Translation error: {type(e).__name__}: {e}")
+        return {"_error": f"{type(e).__name__}: {e}"}
 
 
 def validate_translation(data: dict) -> dict:
@@ -191,25 +204,60 @@ If everything is correct, return the JSON unchanged.
 Return ONLY valid JSON, no other text."""
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
-            max_tokens=1500,
-            system="You are a Bulgarian language quality reviewer for a B2B HVAC catalog. Fix any errors and return clean JSON.",
-            messages=[{"role": "user", "content": review_prompt}],
-        )
-
-        text = response.content[0].text.strip()
+        review_system = "You are a Bulgarian language quality reviewer for a B2B HVAC catalog. Fix any errors and return clean JSON."
+        text = _claude(review_system, review_prompt, max_tokens=1500).strip()
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:
             text = text.split("```")[1].split("```")[0].strip()
-
-        validated = json.loads(text)
-        return validated
-
+        return json.loads(text)
     except Exception:
-        # If validation fails, return original — better than nothing
         return data
+
+
+def translate_from_nomenclature(product: dict) -> dict | None:
+    """
+    Lightweight enrichment using only nomenclature data (no web scraping).
+    Used as fallback when scraping fails but we have Romanian name/subcategory.
+    Produces brand, category, subcategory, and a short description in Bulgarian.
+    """
+    name_bg = product.get("name_bg", "")
+    short_name_ro = product.get("short_name_ro", "")
+    supplier_name = product.get("supplier_name", "")
+    category_ro = product.get("category", "")
+    class_ro = product.get("class_name", "")
+    subclass_ro = product.get("subclass", "")
+
+    if not (short_name_ro or name_bg):
+        return None
+
+    prompt = f"""Clean and translate the following HVAC product data for a Bulgarian B2B catalog.
+
+**Existing Bulgarian name:** {name_bg}
+**Romanian short name:** {short_name_ro}
+**Brand/Supplier:** {supplier_name}
+**Category (Romanian):** {category_ro}
+**Class (Romanian):** {class_ro}
+**Subclass (Romanian):** {subclass_ro}
+
+Return a JSON object with ONLY these fields:
+1. "brand" - Clean brand name. Keep international brands as-is (Ecosoft, Grundfos, Kermi, etc.). Strip legal suffixes (SRL, SA, INDUSTRIE, INDUSTRIES, SPA, GmbH, etc.).
+2. "category" - Translate category to Bulgarian (e.g. FILTRE, CONTOARE, REZERVOARE → Филтри, водомери, резервоари; RADIATOARE → Радиатори).
+3. "subcategory" - Translate class/subclass to Bulgarian (e.g. FILTRE PENTRU APA → Филтри за вода, OSMOЗА → Обратна осмоза).
+4. "short_description" - One sentence in Bulgarian describing what the product is, max 120 chars.
+
+Return ONLY valid JSON, no other text."""
+
+    try:
+        text = _claude(SYSTEM_PROMPT, prompt, max_tokens=400).strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"  Nomenclature translation error: {e}")
+        return None
 
 
 def enrich_products(products: list[dict]) -> list[dict]:
@@ -229,22 +277,38 @@ def enrich_products(products: list[dict]) -> list[dict]:
         print(f"\n[{i+1}/{len(products)}] Translating {code}: {name}...")
 
         if product.get("scrape_status") != "success":
-            print("  Skipping - no scraped data")
-            product["enriched_data"] = None
-            product["enrich_status"] = "skipped"
+            # Fallback: translate from nomenclature data alone (no web content)
+            has_nom = bool(product.get("short_name_ro") or product.get("long_desc_ro"))
+            if has_nom and product.get("match_status", "none") != "none":
+                print("  No scraped data — translating from nomenclature...")
+                result = translate_from_nomenclature(product)
+                if result:
+                    product["enriched_data"] = result
+                    product["enrich_status"] = "success"
+                    print(f"  OK (nomenclature): {result.get('brand', '')} | {result.get('subcategory', '')}")
+                else:
+                    product["enriched_data"] = None
+                    product["enrich_status"] = "failed"
+                    print("  FAILED")
+            else:
+                print("  Skipping - no scraped data and no nomenclature data")
+                product["enriched_data"] = None
+                product["enrich_status"] = "skipped"
             continue
 
         result = translate_product(product)
 
-        if result:
+        if result and "_error" not in result:
             product["enriched_data"] = result
             product["enrich_status"] = "success"
             short = result.get("short_description", "")[:80]
             print(f"  OK: \"{short}...\"")
         else:
+            err = (result or {}).get("_error", "unknown error")
             product["enriched_data"] = None
             product["enrich_status"] = "failed"
-            print("  FAILED")
+            product["enrich_error"] = err
+            print(f"  FAILED: {err}")
 
         # Rate limiting for Claude API
         if i < len(products) - 1:
@@ -257,8 +321,7 @@ def run():
     """Main entry: load scraped products, translate, save results."""
     scraped_path = TMP_DIR / "scraped_products.json"
     if not scraped_path.exists():
-        print("ERROR: Run scrape_product first to generate scraped_products.json")
-        sys.exit(1)
+        raise FileNotFoundError("Run scrape_product first to generate scraped_products.json")
 
     with open(scraped_path, encoding="utf-8") as f:
         products = json.load(f)

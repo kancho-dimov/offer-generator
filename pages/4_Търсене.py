@@ -3,10 +3,19 @@
 import streamlit as st
 
 from i18n import setup_page, t
-from tools.product_search import load_all_products, search_products
+from tools.product_search import load_all_products, search_products, invalidate_cache
 
 setup_page("Търсене на продукти", "🔍")
-st.title(t("search_title"))
+
+col_title, col_refresh = st.columns([5, 1])
+with col_title:
+    st.title(t("search_title"))
+with col_refresh:
+    st.write("")  # spacing
+    if st.button("🔄", key="refresh_search", help=t("refresh")):
+        invalidate_cache()
+        st.cache_data.clear()
+        st.rerun()
 
 
 @st.cache_data(ttl=300)
@@ -65,7 +74,15 @@ if query or selected_category != t("all") or selected_brand != t("all"):
                         st.write("📷")
                 with cols[1]:
                     st.write(f"{code_label} — {name}")
-                    st.caption(f"{brand} | {category} — {subcategory}")
+                    caption_parts = [f"{brand} | {category} — {subcategory}"]
+                    # Logistics info
+                    pcs_carton = p.get("pcs_per_carton", "")
+                    pcs_pallet = p.get("pcs_per_pallet", "")
+                    if pcs_carton and pcs_carton not in ("", "0"):
+                        caption_parts.append(f"📦 {pcs_carton} {t('pcs_label')}/{t('carton_label')}")
+                    if pcs_pallet and pcs_pallet not in ("", "0"):
+                        caption_parts.append(f"📦 {pcs_pallet} {t('pcs_label')}/{t('pallet_label')}")
+                    st.caption(" | ".join(caption_parts))
                 with cols[2]:
                     st.write(f"**{price} {currency}**")
 

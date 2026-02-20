@@ -5,6 +5,7 @@ Run with:
     streamlit run app.py
 """
 
+import os
 import streamlit as st
 
 from i18n import BRAND_CSS, lang_selector, t
@@ -16,8 +17,52 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ---------------------------------------------------------------------------
+# Authentication gate (requires .streamlit/secrets.toml with [auth.google])
+# Skipped when DISABLE_AUTH=1 (local dev without OAuth Web client)
+# ---------------------------------------------------------------------------
+_auth_enabled = (
+    os.environ.get("DISABLE_AUTH", "0") != "1"
+    and hasattr(st, "login")
+    and st.secrets.get("auth", {}).get("google", None) is not None
+)
+
+if _auth_enabled:
+    # Allowed emails — loaded from env var (comma-separated) or secrets
+    _allowed_raw = os.environ.get(
+        "ALLOWED_EMAILS",
+        st.secrets.get("auth", {}).get("allowed_emails", ""),
+    )
+    ALLOWED_EMAILS = [e.strip().lower() for e in _allowed_raw.split(",") if e.strip()]
+
+    if not st.user.is_logged_in:
+        st.image("resources/logo.png", width=200)
+        st.title("Romstal Offer & Order Generator")
+        st.write("Please log in to continue.")
+        if st.button("Log in with Google"):
+            st.login("google")
+        st.stop()
+
+    user_email = (st.user.email or "").lower()
+    if ALLOWED_EMAILS and user_email not in ALLOWED_EMAILS:
+        st.error(f"Access denied for {st.user.email}")
+        st.write("Contact your administrator to request access.")
+        if st.button("Log out"):
+            st.logout()
+        st.stop()
+
+# ---------------------------------------------------------------------------
+# Main app (authenticated or auth disabled)
+# ---------------------------------------------------------------------------
 st.sidebar.image("resources/logo.png", width=180)
 lang_selector()
+
+# Show logged-in user + logout button when auth is active
+if _auth_enabled and st.user.is_logged_in:
+    st.sidebar.caption(f"{st.user.name or st.user.email}")
+    if st.sidebar.button("Logout"):
+        st.logout()
+
 st.sidebar.markdown("---")
 st.markdown(BRAND_CSS, unsafe_allow_html=True)
 

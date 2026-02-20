@@ -30,7 +30,8 @@ HEADERS = [
     "division",         # HIDRO, TERMO, etc.
     "base_unit",        # buc (pcs), m, kg, etc.
     "supplier",         # Manufacturer/supplier
-    "pcs_per_carton",   # AMB2: pieces per carton/box
+    "pcs_per_carton",   # AMB1: pieces per carton/box
+    "pcs_per_pallet",   # AMB2: pieces per pallet
     "min_order_qty",    # Minimum order qty for direct import
 ]
 
@@ -71,12 +72,13 @@ def import_logistics(file_path: str | Path | None = None):
         division = str(row[2] or "").strip()
         base_unit = str(row[3] or "").strip()
         supplier = str(row[7] or "").strip()
-        pcs_per_carton = _parse_int(row[9])   # AMB2 = carton/box tier
+        pcs_per_carton = _parse_int(row[8])   # AMB1 = pcs per carton/box
+        pcs_per_pallet = _parse_int(row[9])   # AMB2 = pcs per pallet
         min_order_qty = _parse_int(row[12])
 
         rows.append([
             material, description, division, base_unit, supplier,
-            pcs_per_carton, min_order_qty,
+            pcs_per_carton, pcs_per_pallet, min_order_qty,
         ])
 
     wb.close()
@@ -112,7 +114,7 @@ def import_logistics(file_path: str | Path | None = None):
         ).execute()
         print(f"  Expanded grid to {needed_rows} rows")
 
-    clear_sheet(MASTER_CATALOG_ID, "'Logistics'!A:G")
+    clear_sheet(MASTER_CATALOG_ID, "'Logistics'!A:H")
 
     for start in range(0, len(all_data), CHUNK):
         chunk = all_data[start:start + CHUNK]

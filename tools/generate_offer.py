@@ -18,6 +18,7 @@ Usage:
 import io
 import json
 import sys
+import threading
 from datetime import date, datetime
 from pathlib import Path
 
@@ -44,8 +45,11 @@ TMP_DIR = Path(__file__).resolve().parent.parent / ".tmp"
 # Offer numbering
 # ---------------------------------------------------------------------------
 
+_counter_lock = threading.Lock()
+
+
 def _get_next_number(service, key: str) -> int:
-    """Read and increment a counter stored in Company_Branding sheet."""
+    """Read and increment a counter stored in Company_Branding sheet (thread-safe)."""
     rows = read_sheet(MASTER_CATALOG_ID, "'Company_Branding'!A:C")
     row_idx = None
     current = 0
@@ -70,15 +74,16 @@ def _get_next_number(service, key: str) -> int:
 
 def get_next_offer_number(mode: str) -> str:
     """Generate the next offer/pricelist number like OFR-2026-001 or PL-2026-001."""
-    service = get_sheets_service()
-    year = date.today().year
-    if mode == "pricelist":
-        key = "next_pricelist_number"
-        prefix = "PL"
-    else:
-        key = "next_offer_number"
-        prefix = "OFR"
-    num = _get_next_number(service, key)
+    with _counter_lock:
+        service = get_sheets_service()
+        year = date.today().year
+        if mode == "pricelist":
+            key = "next_pricelist_number"
+            prefix = "PL"
+        else:
+            key = "next_offer_number"
+            prefix = "OFR"
+        num = _get_next_number(service, key)
     return f"{prefix}-{year}-{num:03d}"
 
 
@@ -126,8 +131,8 @@ def _build_offer_header(offer_number: str, customer: dict, branding: dict, reque
 
     # Row 0: company name left, logo right (last 5 cols merged)
     logo_url = branding.get("company_logo_url", "")
-    logo_formula = f'=IMAGE("{logo_url}", 4, 60, 232)' if logo_url else ""
-    row0 = [branding.get("company_name", "")] + [""] * (num_cols - 6) + [logo_formula]
+    logo_cell = f'=IMAGE("{logo_url}", 4, 60, 232)' if logo_url else ""
+    row0 = [branding.get("company_name", "")] + [""] * (num_cols - 6) + [logo_cell] + [""] * 4
 
     rows = [
         row0,
@@ -182,8 +187,6 @@ def _build_offer_table(result: dict, mode: str, request: dict) -> tuple[list[lis
 
     def _img(url):
         """Skip =IMAGE() — formulas show #REF! in PDF exports until sheet is opened."""
-        # IMAGE() formulas aren't evaluated server-side, causing #REF! in PDF exports.
-        # Return empty string for reliable PDF generation.
         return ""
 
     rows = [header]
@@ -452,6 +455,7 @@ def _get_pdf_url(spreadsheet_id: str, sheet_id: int, mode: str) -> str:
     )
 
 
+
 # ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
@@ -563,6 +567,15 @@ def generate_offer(request: dict | None = None) -> str:
     url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
     pdf_url = _get_pdf_url(spreadsheet_id, main_sheet_id, mode)
 
+    # Generate standalone PDF (logo + full formatting, no Google Sheets renderer)
+    from tools.generate_pdf import build_offer_pdf
+    try:
+        pdf_path = build_offer_pdf(offer_number, mode, customer, branding, request, result)
+        print(f"  PDF generated: {pdf_path.name} ({pdf_path.stat().st_size // 1024} KB)")
+    except Exception as e:
+        print(f"  Warning: PDF generation failed: {e}")
+        pdf_path = None
+
     # Log to Offers_Log tab
     log_offer(offer_number, mode, customer, result, url, pdf_url)
     print("  Logged to Offers_Log")
@@ -577,6 +590,7 @@ def generate_offer(request: dict | None = None) -> str:
         "result": result,
         "spreadsheet_id": spreadsheet_id,
         "pdf_url": pdf_url,
+        "pdf_path": str(pdf_path) if pdf_path else "",
     }
     TMP_DIR.mkdir(exist_ok=True)
     offer_file = TMP_DIR / f"{offer_number.replace('/', '-')}_data.json"
@@ -587,9 +601,12 @@ def generate_offer(request: dict | None = None) -> str:
     print(f"\n  Offer ready: {url}")
     print(f"  PDF export ({orientation} A4): {pdf_url}")
 
-    # Auto-open sheet in browser to trigger IMAGE() formula rendering (needed for PDF export)
-    import webbrowser
-    webbrowser.open(url)
+    # Auto-open sheet in browser (local dev only — fails silently on headless servers)
+    try:
+        import webbrowser
+        webbrowser.open(url)
+    except Exception:
+        pass
 
     return url
 

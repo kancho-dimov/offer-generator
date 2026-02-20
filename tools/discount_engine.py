@@ -17,6 +17,7 @@ from datetime import date, datetime
 from tools.sheets_api import read_sheet
 
 MASTER_CATALOG_ID = "1O1rD0PdKIIY8qKWkNsdElEcdsg1-JQQG1WmfuVXrUVY"
+PRICELIST_ID = "1gx6xQoGtH1KCPRq7ZSJe1ZmD2kvIQh8g3nzm8eFzXLk"
 VAT_RATE = 0.20
 
 
@@ -49,9 +50,26 @@ def load_customer(customer_id: str) -> dict:
     raise ValueError(f"Customer '{customer_id}' not found")
 
 
+def _load_pricelist_map() -> dict[str, dict]:
+    """Load live prices from synced pricelist, keyed by material code."""
+    rows = read_sheet(PRICELIST_ID, "'Sheet1'!A:K")
+    if not rows or len(rows) < 2:
+        return {}
+    data = {}
+    for row in rows[1:]:
+        if len(row) < 5:
+            continue
+        code = row[2].strip()  # Материал (col C)
+        data[code] = {
+            "base_price": row[4] if len(row) > 4 else "",     # Сума без ДДС
+            "currency": row[5] if len(row) > 5 else "",        # Ед-ца (EUR)
+        }
+    return data
+
+
 def load_products(product_codes: list[str]) -> dict[str, dict]:
-    """Read products from Master_Database by code. Returns dict keyed by product_code."""
-    rows = read_sheet(MASTER_CATALOG_ID, "'Master_Database'!A1:Q")
+    """Read products from Master_Database + live prices from pricelist."""
+    rows = read_sheet(MASTER_CATALOG_ID, "'Master_Database'!A1:O")
     if not rows or len(rows) < 2:
         return {}
     header = rows[0]
@@ -62,6 +80,18 @@ def load_products(product_codes: list[str]) -> dict[str, dict]:
         code = product.get("product_code", "")
         if code in product_codes:
             products[code] = product
+
+    # Merge live prices from pricelist
+    pricelist = _load_pricelist_map()
+    for code, product in products.items():
+        pl = pricelist.get(code)
+        if pl:
+            product["base_price"] = pl.get("base_price", "")
+            product["currency"] = pl.get("currency", "")
+        else:
+            product.setdefault("base_price", "")
+            product.setdefault("currency", "")
+
     return products
 
 
@@ -213,8 +243,14 @@ def calculate_price(
     vat_amount = round(net_excl_vat * VAT_RATE, 2)
     net_incl_vat = round(net_excl_vat + vat_amount, 2)
 
-    # Effective compound discount
-    total_discount_pct = round((1 - net_excl_vat / base_price) * 100, 2) if base_price > 0 else 0
+    # Effective compound discount — use exact formula to avoid rounding artifacts
+    if discounts_applied:
+        compound = 1.0
+        for d in discounts_applied:
+            compound *= (1 - d["pct"] / 100)
+        total_discount_pct = round((1 - compound) * 100, 2)
+    else:
+        total_discount_pct = 0
 
     return {
         "base_price": base_price,
@@ -273,16 +309,37 @@ def calculate_offer_lines(
 
         base_price = float(str(product.get("base_price", "0") or "0").replace(",", ""))
 
-        # Per-product discount override: skip rules, apply fixed %
+        # Per-product discount override: skip rules + customer tier, apply fixed %
+        # Custom offer-level discounts still compound on top
         discount_override = item.get("discount_override")
         if discount_override is not None and float(discount_override) > 0:
             override_pct = float(discount_override)
-            net_excl = round(base_price * (1 - override_pct / 100), 2)
+            price = base_price * (1 - override_pct / 100)
+            discounts_applied = [{"name": "Ръчна отстъпка", "type": "override", "pct": override_pct}]
+
+            # Apply custom offer-level discounts on top of override
+            if custom_discounts:
+                for cd in custom_discounts:
+                    pct = float(cd.get("percentage", 0))
+                    if pct > 0:
+                        price *= (1 - pct / 100)
+                        discounts_applied.append({
+                            "name": cd.get("name", "Custom"),
+                            "type": "custom",
+                            "pct": pct,
+                        })
+
+            net_excl = round(price, 2)
             vat_amt = round(net_excl * VAT_RATE, 2)
+            # Use exact compound formula to avoid rounding artifacts
+            compound = 1.0
+            for d in discounts_applied:
+                compound *= (1 - d["pct"] / 100)
+            total_disc = round((1 - compound) * 100, 2)
             pricing = {
                 "base_price": base_price,
-                "discounts_applied": [{"name": "Ръчна отстъпка", "type": "override", "pct": override_pct}],
-                "total_discount_pct": override_pct,
+                "discounts_applied": discounts_applied,
+                "total_discount_pct": total_disc,
                 "net_price_excl_vat": net_excl,
                 "vat_amount": vat_amt,
                 "net_price_incl_vat": round(net_excl + vat_amt, 2),

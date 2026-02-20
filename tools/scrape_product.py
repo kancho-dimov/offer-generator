@@ -236,8 +236,7 @@ def run():
     """Main entry: load mapped products, scrape, save results."""
     mapped_path = TMP_DIR / "mapped_products.json"
     if not mapped_path.exists():
-        print("ERROR: Run data_mapper first to generate mapped_products.json")
-        sys.exit(1)
+        raise FileNotFoundError("Run data_mapper first to generate mapped_products.json")
 
     with open(mapped_path, encoding="utf-8") as f:
         products = json.load(f)

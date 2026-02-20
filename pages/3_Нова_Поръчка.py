@@ -15,7 +15,7 @@ from tools.generate_order import (
 )
 from tools.offer_log import get_offer_log
 from tools.product_search import load_all_products, search_products
-from tools.send_email import _download_pdf, prepare_order_email, send_order_to_cs, send_order_to_customer
+from tools.send_email import prepare_order_email, send_order_to_cs, send_order_to_customer
 from tools.sheets_api import read_sheet
 
 MASTER_CATALOG_ID = "1O1rD0PdKIIY8qKWkNsdElEcdsg1-JQQG1WmfuVXrUVY"
@@ -153,33 +153,45 @@ if order_mode == "from_offer":
 
             # Load offer items if not already loaded for this offer (skip after reset)
             if st.session_state.loaded_offer not in (selected_offer_number, "__reset__"):
-                import json
-                from pathlib import Path
+                # Read line items directly from the offer spreadsheet
+                spreadsheet_url = offer_data.get("spreadsheet_url", "")
+                spreadsheet_id = spreadsheet_url.split("/d/")[1].split("/")[0] if "/d/" in spreadsheet_url else ""
 
-                tmp_dir = Path(__file__).resolve().parent.parent / ".tmp"
-                offer_file = tmp_dir / f"{selected_offer_number.replace('/', '-')}_data.json"
+                if spreadsheet_id:
+                    try:
+                        from tools.sheets_api import read_sheet as _read_sheet
+                        offer_rows = _read_sheet(spreadsheet_id, "'Оферта'!A13:J100")
+                        if offer_rows and len(offer_rows) > 1:
+                            # First row is header, data rows follow until empty
+                            st.session_state.order_items = []
+                            for row in offer_rows[1:]:
+                                if not row or not row[0] or not row[0].strip().isdigit():
+                                    break  # End of product rows
+                                row += [""] * (10 - len(row))
+                                code = row[2].strip()
+                                name = row[3].strip()
+                                brand = row[4].strip()
+                                qty = int(float(row[5])) if row[5].strip() else 1
+                                base_price = float(row[6].replace(",", "")) if row[6].strip() else 0
+                                disc_str = row[7].replace("%", "").strip()
+                                disc = float(disc_str) if disc_str else 0
 
-                if offer_file.exists():
-                    with open(offer_file, encoding="utf-8") as f:
-                        saved = json.load(f)
-                    lines = saved.get("result", {}).get("lines", [])
-                    req_items = saved.get("request", {}).get("items", [])
-                    qty_map = {i["product_code"]: i.get("quantity", 1) for i in req_items}
-
-                    st.session_state.order_items = [
-                        {
-                            "product_code": line["product_code"],
-                            "name": line.get("name", ""),
-                            "brand": line.get("brand", ""),
-                            "base_price": line.get("base_price", 0),
-                            "quantity": qty_map.get(line["product_code"], line.get("quantity", 1)),
-                            "measure_unit": "pcs",
-                            "discount_override": line.get("total_discount_pct", 0) if line.get("total_discount_pct", 0) > 0 else None,
-                        }
-                        for line in lines
-                        if "error" not in line
-                    ]
-                    st.session_state.loaded_offer = selected_offer_number
+                                st.session_state.order_items.append({
+                                    "product_code": code,
+                                    "name": name,
+                                    "brand": brand,
+                                    "base_price": base_price,
+                                    "quantity": qty,
+                                    "measure_unit": "pcs",
+                                    "discount_override": disc if disc > 0 else None,
+                                })
+                            st.session_state.loaded_offer = selected_offer_number
+                        else:
+                            st.warning(t("offer_data_missing"))
+                            st.session_state.loaded_offer = selected_offer_number
+                    except Exception as e:
+                        st.warning(f"{t('offer_data_missing')} ({e})")
+                        st.session_state.loaded_offer = selected_offer_number
                 else:
                     st.warning(t("offer_data_missing"))
                     st.session_state.loaded_offer = selected_offer_number
@@ -310,7 +322,7 @@ with col_items:
             logi = logistics.get(code, {})
             ppc = int(logi.get("pcs_per_carton", 0) or 0)
 
-            c1, c2, c3, c4, c5, c6 = st.columns([3, 0.8, 1.2, 0.8, 2, 0.4])
+            c1, c2, c3, c4, c5, c6 = st.columns([3, 0.8, 1.5, 0.8, 1.7, 0.4])
             with c1:
                 sup = item.get("supplier_code", "")
                 code_label = f"**{code}** ({sup})" if sup else f"**{code}**"
@@ -385,6 +397,8 @@ with col_c:
 
 notes = st.text_area(t("notes"), placeholder=t("notes_placeholder"), key=f"ord_notes_{_v}")
 
+custom_discount_pct = st.number_input(t("extra_discount"), min_value=0.0, max_value=50.0, value=0.0, step=0.5, key=f"ord_extra_disc_{_v}")
+
 # --- Step 4: Generate ---
 st.subheader(t("step4_generate"))
 
@@ -412,6 +426,8 @@ if st.session_state.order_items and selected_customer:
         }
         if selected_offer_number:
             request["offer_number"] = selected_offer_number
+        if custom_discount_pct > 0:
+            request["custom_discounts"] = [{"name": "Допълнителна отстъпка", "percentage": custom_discount_pct}]
 
         with st.spinner(t("generating_order")):
             try:
@@ -429,6 +445,7 @@ if st.session_state.order_items and selected_customer:
 
                 st.session_state.order_result = {
                     "url": url,
+                    "pdf_path": order_data.get("pdf_path", ""),
                     "pdf_url": order_data.get("pdf_url", ""),
                     "order_number": order_data.get("order_number", ""),
                     "offer_number": selected_offer_number,
@@ -457,18 +474,19 @@ if st.session_state.order_result:
     with col1:
         st.link_button(t("open_sheets"), result["url"], use_container_width=True)
     with col2:
-        pdf_url = result.get("pdf_url", "")
-        if pdf_url:
+        pdf_path = result.get("pdf_path", "")
+        if pdf_path:
             if st.button(t("preview_pdf"), use_container_width=True):
-                with st.spinner("..."):
-                    pdf_bytes = _download_pdf(pdf_url)
-                    if pdf_bytes:
-                        st.session_state.order_pdf_bytes = pdf_bytes
-                        cust_name = result.get("customer", {}).get("company_name", "")
-                        st.session_state.order_pdf_name = f"{result.get('order_number', 'order')} _ {cust_name} - Поръчка.pdf"
-                        st.rerun()
-                    else:
-                        st.error(t("error"))
+                from pathlib import Path as _Path
+                p = _Path(pdf_path)
+                if p.exists():
+                    pdf_bytes = p.read_bytes()
+                    st.session_state.order_pdf_bytes = pdf_bytes
+                    cust_name = result.get("customer", {}).get("company_name", "")
+                    st.session_state.order_pdf_name = f"{result.get('order_number', 'order')} _ {cust_name} - Поръчка.pdf"
+                    st.rerun()
+                else:
+                    st.error(t("error"))
     with col3:
         if st.button(t("send_to_cs"), use_container_width=True):
             try:
@@ -485,6 +503,7 @@ if st.session_state.order_result:
                     result["url"],
                     result.get("pdf_url", ""),
                     delivery_address=result.get("delivery_address", ""),
+                    pdf_path=result.get("pdf_path", ""),
                 )
                 st.success(t("sent_to_cs"))
             except Exception as e:
@@ -503,6 +522,7 @@ if st.session_state.order_result:
                         "customer": result["customer"],
                         "order_number": result["order_number"],
                         "delivery_date": result.get("delivery_date", ""),
+                        "pdf_path": result.get("pdf_path", ""),
                         "pdf_url": result.get("pdf_url", ""),
                         "spreadsheet_url": result["url"],
                     }
@@ -512,25 +532,30 @@ if st.session_state.order_result:
 
     # --- PDF preview + download ---
     if st.session_state.get("order_pdf_bytes"):
-        st.markdown("---")
-        pc1, pc2 = st.columns([4, 1])
-        with pc2:
-            if st.button(t("close_pdf"), key="ord_pdf_close"):
-                del st.session_state.order_pdf_bytes
-                st.rerun()
-        pdf_b64 = base64.b64encode(st.session_state.order_pdf_bytes).decode()
-        st.markdown(
-            f'<iframe src="data:application/pdf;base64,{pdf_b64}" '
-            f'width="100%" height="800" style="border: 1px solid #ddd; border-radius: 4px;"></iframe>',
-            unsafe_allow_html=True,
-        )
-        st.download_button(
-            t("download_pdf"),
-            data=st.session_state.order_pdf_bytes,
-            file_name=st.session_state.get("order_pdf_name", "order.pdf"),
-            mime="application/pdf",
-            use_container_width=True,
-        )
+        try:
+            st.markdown("---")
+            pc1, pc2 = st.columns([4, 1])
+            with pc2:
+                if st.button(t("close_pdf"), key="ord_pdf_close"):
+                    del st.session_state.order_pdf_bytes
+                    st.rerun()
+            pdf_b64 = base64.b64encode(st.session_state.order_pdf_bytes).decode()
+            st.markdown(
+                f'<iframe src="data:application/pdf;base64,{pdf_b64}" '
+                f'width="100%" height="800" style="border: 1px solid #ddd; border-radius: 4px;"></iframe>',
+                unsafe_allow_html=True,
+            )
+            st.download_button(
+                t("download_pdf"),
+                data=st.session_state.order_pdf_bytes,
+                file_name=st.session_state.get("order_pdf_name", "order.pdf"),
+                mime="application/pdf",
+                use_container_width=True,
+            )
+        except Exception:
+            # Stale media file reference — clear and continue
+            del st.session_state.order_pdf_bytes
+            st.rerun()
 
     # --- Email preview / edit / approve ---
     if st.session_state.order_email_preview:
@@ -557,6 +582,7 @@ if st.session_state.order_result:
                             subject_override=edited_subject,
                             body_text_override=edited_body,
                             email_override=edited_to,
+                            pdf_path=preview.get("pdf_path", ""),
                         )
                         st.session_state.order_email_preview = None
                         st.success(f"{t('sent_to')} {preview['to']}")

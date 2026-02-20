@@ -21,6 +21,88 @@ MASTER_CATALOG_ID = "1O1rD0PdKIIY8qKWkNsdElEcdsg1-JQQG1WmfuVXrUVY"
 MASTER_DB_TAB = "Master_Database"
 TMP_DIR = Path(__file__).resolve().parent.parent / ".tmp"
 
+# Romanian → Bulgarian category translation (applied to ALL products)
+CATEGORY_MAP = {
+    "RADIATOARE": "Радиатори",
+    "CENTRALE MURALE": "Стенни котли",
+    "BATERII": "Смесители",
+    "POMPE, VASE DE EXPANSIUNE": "Помпи и разширителни съдове",
+    "SISTEME DE INCALZIRE IN PARDOSEALA": "Подово отопление",
+    "CANALIZARI SI SCURGERI": "Канализация и отводняване",
+    "ROBINETI, RACORDURI, ACCESORII": "Кранове, фитинги, аксесоари",
+    "FILTRE, CONTOARE, REZERVOARE": "Филтри, водомери, резервоари",
+    "KLIMA": "Климатизация",
+    "COSURI DE FUM SI TUBULATURA": "Комини и димоотводи",
+    "IZOLATIE": "Изолация",
+    "PREPARARE ACM": "Подгряване на БГВ",
+}
+
+SUBCAT_MAP = {
+    "ALUMINIU": "Алуминиеви",
+    "OTEL": "Стоманени",
+    "BIMETALICE": "Биметални",
+    "DECORATIVE": "Дизайнерски",
+    "PARDOSEALA": "Подови",
+    "GAZ": "Газови",
+    "CONDENSARE": "Кондензни",
+    "ELECTRICE": "Електрически",
+    "BATERII BUCATARIE": "Смесители за кухня",
+    "BATERII BAIE": "Смесители за баня",
+    "BATERII CADA": "Смесители за вана",
+    "BATERII BIDEU": "Смесители за биде",
+    "BATERII LAVOAR": "Смесители за умивалник",
+    "TEVI SI FITINGURI DIN PP (POLIPROPILENA)": "Тръби и фитинги от полипропилен (PP)",
+    "TEVI SI FITINGURI DIN PVC": "Тръби и фитинги от PVC",
+    "PP _ CANALIZARE INTERIOARA": "PP - Вътрешна канализация",
+    "PVC _ CANALIZARE EXTERIOARA": "PVC - Външна канализация",
+    "POMPE CIRCULATIE": "Циркулационни помпи",
+    "POMPE SUBMERSIBILE": "Потопяеми помпи",
+    "HIDROFOARE": "Хидрофорни системи",
+    "VASE DE EXPANSIUNE": "Разширителни съдове",
+    "ROBINETI": "Кранове",
+    "FILTRE APA": "Филтри за вода",
+    "CONTOARE APA": "Водомери",
+    "BOILERE": "Бойлери",
+    "PANOURI SOLARE": "Слънчеви колектори",
+    "POMPE CALDURA": "Термопомпи",
+}
+
+
+def _translate_category(raw: str) -> str:
+    """Translate a Romanian category to Bulgarian using static map."""
+    if not raw:
+        return ""
+    # Try exact match first
+    if raw in CATEGORY_MAP:
+        return CATEGORY_MAP[raw]
+    # Try case-insensitive
+    upper = raw.upper().strip()
+    for ro, bg in CATEGORY_MAP.items():
+        if upper == ro.upper():
+            return bg
+    return raw  # Return as-is if no match
+
+
+def _translate_subcategory(raw: str) -> str:
+    """Translate a Romanian subcategory to Bulgarian using static map."""
+    if not raw:
+        return ""
+    # Try each part (subcategory can be "CLASS / SUBCLASS")
+    parts = [p.strip() for p in raw.split("/")]
+    translated = []
+    for part in parts:
+        matched = False
+        upper = part.upper().strip()
+        for ro, bg in SUBCAT_MAP.items():
+            if upper == ro.upper():
+                translated.append(bg)
+                matched = True
+                break
+        if not matched:
+            translated.append(part)
+    return " / ".join(translated)
+
+
 # Simplified column layout - single image_url instead of 3 image columns
 COLUMNS = [
     "product_code",        # A
@@ -30,16 +112,14 @@ COLUMNS = [
     "brand",               # E
     "category",            # F
     "subcategory",         # G
-    "base_price",          # H
-    "currency",            # I
-    "measure_unit",        # J
-    "short_description",   # K
-    "long_description",    # L
-    "specifications",      # M
-    "features",            # N
-    "image_url",           # O - single small image
-    "catalog_ready",       # P
-    "last_synced",         # Q
+    "measure_unit",        # H
+    "short_description",   # I
+    "long_description",    # J
+    "specifications",      # K
+    "features",            # L
+    "image_url",           # M - single small image
+    "catalog_ready",       # N
+    "last_synced",         # O
 ]
 
 
@@ -67,7 +147,7 @@ def get_small_image_url(scraped: dict) -> str:
 
 def load_existing_catalog() -> dict[str, dict]:
     """Load existing products from Master_Database, keyed by product_code."""
-    rows = read_sheet(MASTER_CATALOG_ID, f"'{MASTER_DB_TAB}'!A:Q")
+    rows = read_sheet(MASTER_CATALOG_ID, f"'{MASTER_DB_TAB}'!A:O")
     if not rows or len(rows) < 2:
         return {}
 
@@ -91,10 +171,16 @@ def build_row(product: dict) -> list[str]:
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # Use translated brand/category from Claude, fallback to raw
+    # Use translated brand/category from Claude, fallback to static map
     brand = enriched.get("brand", "") or scraped.get("brand", "") or product.get("supplier_name", "")
-    category = enriched.get("category", "") or product.get("category", "")
-    subcategory = enriched.get("subcategory", "") or f"{product.get('class_name', '')} / {product.get('subclass', '')}".strip(" /")
+
+    raw_category = enriched.get("category", "") or product.get("category", "")
+    category = _translate_category(raw_category) if raw_category else ""
+
+    raw_subcat = enriched.get("subcategory", "")
+    if not raw_subcat:
+        raw_subcat = f"{product.get('class_name', '')} / {product.get('subclass', '')}".strip(" /")
+    subcategory = _translate_subcategory(raw_subcat) if raw_subcat else ""
 
     # Single small image
     image_url = get_small_image_url(scraped)
@@ -107,8 +193,6 @@ def build_row(product: dict) -> list[str]:
         brand,                                          # brand
         category,                                       # category
         subcategory,                                    # subcategory
-        product.get("base_price", ""),                  # base_price
-        product.get("currency", ""),                    # currency
         product.get("measure_unit", product.get("unit", "")),  # measure_unit
         enriched.get("short_description", ""),          # short_description
         enriched.get("long_description", ""),           # long_description
@@ -126,8 +210,7 @@ def update_catalog(force: bool = False):
     """Main function to update the Master_Database with enriched products."""
     enriched_path = TMP_DIR / "enriched_products.json"
     if not enriched_path.exists():
-        print("ERROR: Run translate_and_enrich first to generate enriched_products.json")
-        sys.exit(1)
+        raise FileNotFoundError("Run translate_and_enrich first to generate enriched_products.json")
 
     with open(enriched_path, encoding="utf-8") as f:
         products = json.load(f)
@@ -144,8 +227,8 @@ def update_catalog(force: bool = False):
         code = product["product_code"]
         enriched = product.get("enriched_data")
 
-        if not enriched and product.get("enrich_status") != "success":
-            print(f"  Skipping {code} - not enriched")
+        if product.get("match_status") == "none":
+            print(f"  Skipping {code} - no match in pricelist or nomenclature")
             skipped += 1
             continue
 
@@ -170,7 +253,7 @@ def update_catalog(force: bool = False):
     existing_codes_in_sheet = set()
 
     if existing:
-        raw = read_sheet(MASTER_CATALOG_ID, f"'{MASTER_DB_TAB}'!A:Q")
+        raw = read_sheet(MASTER_CATALOG_ID, f"'{MASTER_DB_TAB}'!A:O")
         if raw and len(raw) > 1:
             for row in raw[1:]:
                 if row and row[0].strip():

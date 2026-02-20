@@ -18,6 +18,7 @@ Usage:
 import io
 import json
 import sys
+import threading
 from datetime import date, datetime
 from pathlib import Path
 
@@ -44,8 +45,16 @@ TMP_DIR = Path(__file__).resolve().parent.parent / ".tmp"
 # Order numbering
 # ---------------------------------------------------------------------------
 
+_counter_lock = threading.Lock()
+
+
 def _get_next_order_number() -> str:
-    """Generate the next order number like ORD-2026-001."""
+    """Generate the next order number like ORD-2026-001 (thread-safe)."""
+    with _counter_lock:
+        return _get_next_order_number_inner()
+
+
+def _get_next_order_number_inner() -> str:
     rows = read_sheet(MASTER_CATALOG_ID, "'Company_Branding'!A:C")
     row_idx = None
     current = 0
@@ -141,8 +150,8 @@ def _build_order_header(
 
     # Row 0: company name left, logo right (last 5 cols merged)
     logo_url = branding.get("company_logo_url", "")
-    logo_formula = f'=IMAGE("{logo_url}", 4, 60, 232)' if logo_url else ""
-    row0 = [branding.get("company_name", "")] + [""] * (num_cols - 6) + [logo_formula]
+    logo_cell = f'=IMAGE("{logo_url}", 4, 60, 232)' if logo_url else ""
+    row0 = [branding.get("company_name", "")] + [""] * (num_cols - 6) + [logo_cell] + [""] * 4
 
     sales_agent = request.get("sales_agent_code", branding.get("sales_agent_sap_code", "12104"))
     notes = request.get("notes", "")
@@ -429,6 +438,15 @@ def generate_order(request: dict | None = None) -> str:
     url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
     pdf_url = _get_pdf_url(spreadsheet_id, sheet_id)
 
+    # Generate standalone PDF (logo + full formatting, no Google Sheets renderer)
+    from tools.generate_pdf import build_order_pdf
+    try:
+        pdf_path = build_order_pdf(order_number, offer_number, customer, branding, request, result, logistics)
+        print(f"  PDF generated: {pdf_path.name} ({pdf_path.stat().st_size // 1024} KB)")
+    except Exception as e:
+        print(f"  Warning: PDF generation failed: {e}")
+        pdf_path = None
+
     # Calculate actual totals with measure unit conversion
     items_config = {item["product_code"]: item for item in items}
     actual_excl = 0
@@ -481,6 +499,7 @@ def generate_order(request: dict | None = None) -> str:
         "spreadsheet_id": spreadsheet_id,
         "spreadsheet_url": url,
         "pdf_url": pdf_url,
+        "pdf_path": str(pdf_path) if pdf_path else "",
         "total_excl_vat": actual_excl,
         "total_incl_vat": actual_incl,
     }
@@ -491,9 +510,12 @@ def generate_order(request: dict | None = None) -> str:
     print(f"\n  Order ready: {url}")
     print(f"  PDF export (landscape A4): {pdf_url}")
 
-    # Auto-open sheet in browser to trigger IMAGE() formula rendering (needed for PDF export)
-    import webbrowser
-    webbrowser.open(url)
+    # Auto-open sheet in browser (local dev only — fails silently on headless servers)
+    try:
+        import webbrowser
+        webbrowser.open(url)
+    except Exception:
+        pass
 
     return url
 

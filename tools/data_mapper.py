@@ -136,6 +136,38 @@ def map_products(wishlist: list[str], pricelist: dict, nomenclature: dict) -> li
     return products
 
 
+def map_codes(codes: list[str], progress_cb=None) -> list[dict]:
+    """Map a list of SAP codes against pricelist + nomenclature.
+
+    Args:
+        codes: List of SAP material codes to look up.
+        progress_cb: Optional callable(message: str) for progress updates.
+
+    Returns:
+        List of merged product dicts ready for enrichment.
+    """
+    _log = progress_cb or print
+
+    _log("Loading pricelist...")
+    pricelist = load_pricelist()
+    _log(f"  Loaded {len(pricelist)} entries")
+
+    _log("Loading nomenclature...")
+    nomenclature = load_nomenclature()
+    _log(f"  Loaded {len(nomenclature)} entries")
+
+    _log("Mapping products...")
+    products = map_products(codes, pricelist, nomenclature)
+
+    full = sum(1 for p in products if p["match_status"] == "full")
+    pl_only = sum(1 for p in products if p["match_status"] == "pricelist_only")
+    nom_only = sum(1 for p in products if p["match_status"] == "nomenclature_only")
+    none_count = sum(1 for p in products if p["match_status"] == "none")
+    _log(f"  Results: {full} full, {pl_only} pricelist-only, {nom_only} nom-only, {none_count} no match")
+
+    return products
+
+
 def run() -> list[dict]:
     """Main entry point: load data, map products, save to .tmp."""
     print("Loading wishlist from Product_Codes...")

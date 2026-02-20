@@ -22,7 +22,7 @@ from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-from tools.google_auth import get_credentials, get_drive_service, get_gmail_service
+from tools.google_auth import get_credentials, get_gmail_credentials, get_drive_service, get_gmail_service
 
 # Basic email validation — rejects control characters, newlines, missing @
 _EMAIL_RE = re.compile(r"^[^@\s\r\n]+@[^@\s\r\n]+\.[^@\s\r\n]+$")
@@ -121,7 +121,7 @@ def _download_pdf(pdf_url: str) -> bytes | None:
         return None
     try:
         import httpx
-        creds = get_credentials()
+        creds = get_gmail_credentials()
         token = creds.token
         resp = httpx.get(pdf_url, headers={"Authorization": f"Bearer {token}"}, follow_redirects=True, timeout=30)
         if resp.status_code == 200 and len(resp.content) > 100:
@@ -310,6 +310,7 @@ def send_offer_to_customer(
     subject_override: str | None = None,
     body_text_override: str | None = None,
     email_override: str | None = None,
+    pdf_path: str = "",
 ) -> dict:
     """Send an offer or pricelist to the customer with PDF attached."""
     customer_email = _validate_email(email_override or customer.get("email", ""))
@@ -323,8 +324,16 @@ def send_offer_to_customer(
         subject = prepared["subject"]
         body_html = _text_to_html(prepared["body"])
 
-    # Download and attach PDF
-    pdf_data = _download_pdf(pdf_url)
+    # Attach PDF — prefer local Python-generated PDF, fall back to Sheets export download
+    pdf_data = None
+    if pdf_path:
+        from pathlib import Path
+        p = Path(pdf_path)
+        if p.exists():
+            pdf_data = p.read_bytes()
+    if not pdf_data:
+        pdf_data = _download_pdf(pdf_url)
+
     if pdf_data:
         filename = f"{offer_number.replace('/', '-')}.pdf"
         result = _send_with_pdf(customer_email, subject, body_html, pdf_data, filename)
@@ -352,6 +361,7 @@ def send_order_to_cs(
     pdf_url: str,
     lines_summary: list[dict] | None = None,
     delivery_address: str = "",
+    pdf_path: str = "",
 ) -> dict:
     """Send an order to customer service for booking into SAP."""
     cs_email = _get_branding_value("cs_email")
@@ -407,8 +417,16 @@ def send_order_to_cs(
     </div>
     """
 
-    # Attach PDF for inline preview in email client
-    pdf_data = _download_pdf(pdf_url)
+    # Attach PDF — prefer local Python-generated PDF, fall back to Sheets export download
+    pdf_data = None
+    if pdf_path:
+        from pathlib import Path
+        p = Path(pdf_path)
+        if p.exists():
+            pdf_data = p.read_bytes()
+    if not pdf_data:
+        pdf_data = _download_pdf(pdf_url)
+
     if pdf_data:
         filename = f"{order_number.replace('/', '-')}.pdf"
         result = _send_with_pdf(cs_email, subject, body, pdf_data, filename)
@@ -427,6 +445,7 @@ def send_order_to_customer(
     subject_override: str | None = None,
     body_text_override: str | None = None,
     email_override: str | None = None,
+    pdf_path: str = "",
 ) -> dict:
     """Send order confirmation to the customer with PDF only (no Sheet link)."""
     customer_email = _validate_email(email_override or customer.get("email", ""))
@@ -440,8 +459,16 @@ def send_order_to_customer(
         subject = prepared["subject"]
         body_html = _text_to_html(prepared["body"])
 
-    # Download and attach PDF
-    pdf_data = _download_pdf(pdf_url)
+    # Attach PDF — prefer local Python-generated PDF, fall back to Sheets export download
+    pdf_data = None
+    if pdf_path:
+        from pathlib import Path
+        p = Path(pdf_path)
+        if p.exists():
+            pdf_data = p.read_bytes()
+    if not pdf_data:
+        pdf_data = _download_pdf(pdf_url)
+
     if pdf_data:
         filename = f"{order_number.replace('/', '-')}.pdf"
         result = _send_with_pdf(customer_email, subject, body_html, pdf_data, filename)
