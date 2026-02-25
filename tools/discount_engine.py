@@ -16,6 +16,12 @@ Usage:
 from datetime import date, datetime
 from tools.sheets_api import read_sheet
 
+
+def _norm(code: str) -> str:
+    """Normalize a product code by removing all internal and surrounding spaces."""
+    return code.replace(" ", "").strip() if code else ""
+
+
 MASTER_CATALOG_ID = "1O1rD0PdKIIY8qKWkNsdElEcdsg1-JQQG1WmfuVXrUVY"
 PRICELIST_ID = "1gx6xQoGtH1KCPRq7ZSJe1ZmD2kvIQh8g3nzm8eFzXLk"
 VAT_RATE = 0.20
@@ -59,7 +65,7 @@ def _load_pricelist_map() -> dict[str, dict]:
     for row in rows[1:]:
         if len(row) < 5:
             continue
-        code = row[2].strip()  # Материал (col C)
+        code = _norm(row[2])  # Материал (col C)
         data[code] = {
             "base_price": row[4] if len(row) > 4 else "",     # Сума без ДДС
             "currency": row[5] if len(row) > 5 else "",        # Ед-ца (EUR)
@@ -84,7 +90,7 @@ def load_products(product_codes: list[str]) -> dict[str, dict]:
     # Merge live prices from pricelist
     pricelist = _load_pricelist_map()
     for code, product in products.items():
-        pl = pricelist.get(code)
+        pl = pricelist.get(_norm(code))
         if pl:
             product["base_price"] = pl.get("base_price", "")
             product["currency"] = pl.get("currency", "")
@@ -153,7 +159,7 @@ def get_applicable_rules(
             matched = True
         elif rule_type == "subcategory" and product.get("subcategory", "").strip().lower() == target.lower():
             matched = True
-        elif rule_type == "product" and product.get("product_code", "").strip() == target:
+        elif rule_type == "product" and _norm(product.get("product_code", "")) == _norm(target):
             matched = True
 
         if not matched:

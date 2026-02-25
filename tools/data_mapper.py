@@ -15,6 +15,12 @@ from pathlib import Path
 
 from tools.sheets_api import read_sheet
 
+
+def _norm(code: str) -> str:
+    """Normalize a product code by removing all internal and surrounding spaces."""
+    return code.replace(" ", "").strip() if code else ""
+
+
 # Sheet IDs
 MASTER_CATALOG_ID = "1O1rD0PdKIIY8qKWkNsdElEcdsg1-JQQG1WmfuVXrUVY"
 PRICELIST_ID = "1gx6xQoGtH1KCPRq7ZSJe1ZmD2kvIQh8g3nzm8eFzXLk"
@@ -45,7 +51,7 @@ def load_pricelist() -> dict:
     for row in rows[1:]:
         if len(row) < 5:
             continue
-        code = row[2].strip()  # Материал
+        code = _norm(row[2])  # Материал
         data[code] = {
             "sales_org": row[0] if len(row) > 0 else "",
             "material_code": code,
@@ -69,7 +75,7 @@ def load_nomenclature() -> dict:
     for row in rows[1:]:
         if len(row) < 2:
             continue
-        code = row[1].strip()  # Cod Articol
+        code = _norm(row[1])  # Cod Articol
         data[code] = {
             "supplier_code": row[0].strip() if len(row) > 0 else "",
             "cod_articol": code,
@@ -102,8 +108,8 @@ def map_products(wishlist: list[str], pricelist: dict, nomenclature: dict) -> li
     for code in wishlist:
         product = {"product_code": code, "match_status": "none"}
 
-        pl = pricelist.get(code)
-        nom = nomenclature.get(code)
+        pl = pricelist.get(_norm(code))
+        nom = nomenclature.get(_norm(code))
 
         if pl and nom:
             product["match_status"] = "full"

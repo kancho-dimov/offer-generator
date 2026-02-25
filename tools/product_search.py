@@ -13,6 +13,12 @@ Usage:
 
 from tools.sheets_api import read_sheet
 
+
+def _norm(code: str) -> str:
+    """Normalize a product code by removing all internal and surrounding spaces."""
+    return code.replace(" ", "").strip() if code else ""
+
+
 MASTER_CATALOG_ID = "1O1rD0PdKIIY8qKWkNsdElEcdsg1-JQQG1WmfuVXrUVY"
 PRICELIST_ID = "1gx6xQoGtH1KCPRq7ZSJe1ZmD2kvIQh8g3nzm8eFzXLk"
 NOMENCLATURES_ID = "1qfuXFqwwUGi-ovm_Wu5O1ptwZA65ARDIf2z91X-syhg"
@@ -39,7 +45,7 @@ def _load_pricelist() -> dict[str, dict]:
     for row in rows[1:]:
         if len(row) < 5:
             continue
-        code = row[2].strip()  # Материал (col C)
+        code = _norm(row[2])  # Материал (col C)
         data[code] = {
             "base_price": row[4] if len(row) > 4 else "",     # Сума без ДДС
             "currency": row[5] if len(row) > 5 else "",        # Ед-ца (EUR)
@@ -59,7 +65,7 @@ def _load_nomenclature_brands() -> dict[str, str]:
     rows = read_sheet(NOMENCLATURES_ID, f"'{NOMENCLATURES_TAB}'!A:J")
     data: dict[str, str] = {}
     for row in rows[1:]:
-        code = row[1].strip() if len(row) > 1 else ""
+        code = _norm(row[1]) if len(row) > 1 else ""
         name = row[9].strip() if len(row) > 9 else ""
         if code and name:
             data[code] = name
@@ -86,7 +92,7 @@ def _load_logistics() -> dict[str, dict]:
             continue
         row += [""] * (len(headers) - len(row))
         entry = dict(zip(headers, row))
-        data[entry["product_code"]] = entry
+        data[_norm(entry["product_code"])] = entry
 
     _logistics_cache = data
     return _logistics_cache
@@ -113,10 +119,10 @@ def load_all_products(force_reload: bool = False) -> list[dict]:
             continue
         row += [""] * (len(headers) - len(row))
         product = dict(zip(headers, row))
-        code = product["product_code"].strip()
+        norm_code = _norm(product["product_code"])
 
         # Prices come exclusively from the live synced pricelist
-        pl = pricelist.get(code)
+        pl = pricelist.get(norm_code)
         if pl:
             product["base_price"] = pl["base_price"]
             product["currency"] = pl["currency"]
@@ -127,7 +133,7 @@ def load_all_products(force_reload: bool = False) -> list[dict]:
             product["currency"] = ""
 
         # Merge logistics data (pack sizes only)
-        logi = logistics.get(code)
+        logi = logistics.get(norm_code)
         if logi:
             product["pcs_per_carton"] = logi.get("pcs_per_carton", "")
             product["pcs_per_pallet"] = logi.get("pcs_per_pallet", "")
@@ -188,7 +194,7 @@ def load_all_products(force_reload: bool = False) -> list[dict]:
             continue  # don't overwrite with nomenclature data
         code = p["product_code"]
         # Prefer nomenclature supplier_name; fall back to whatever is in Master_Database
-        raw = nom_brands.get(code) or p.get("brand", "")
+        raw = nom_brands.get(_norm(code)) or p.get("brand", "")
         if not raw:
             continue
         stripped = _strip_suffixes(raw.strip())
@@ -236,7 +242,7 @@ def get_product(product_code: str) -> dict | None:
     """Get a single product by exact code."""
     products = load_all_products()
     for p in products:
-        if p.get("product_code", "").strip() == product_code.strip():
+        if _norm(p.get("product_code", "")) == _norm(product_code):
             return p
     return None
 
