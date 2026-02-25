@@ -8,13 +8,13 @@ Run with:
 import os
 import streamlit as st
 
-from i18n import BRAND_CSS, lang_selector, t
+from i18n import BRAND_CSS, render_navbar, t
 
 st.set_page_config(
     page_title="Romstal | Offers & Orders",
     page_icon="resources/logo.png",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ---------------------------------------------------------------------------
@@ -54,17 +54,18 @@ if _auth_enabled:
 # ---------------------------------------------------------------------------
 # Main app (authenticated or auth disabled)
 # ---------------------------------------------------------------------------
-st.sidebar.image("resources/logo.png", width=180)
-lang_selector()
+st.markdown(BRAND_CSS, unsafe_allow_html=True)
+render_navbar(current_page="")
 
 # Show logged-in user + logout button when auth is active
 if _auth_enabled and st.user.is_logged_in:
-    st.sidebar.caption(f"{st.user.name or st.user.email}")
-    if st.sidebar.button("Logout"):
+    st.markdown(
+        f"<p style='font-size:0.8rem;color:#64748B;margin-bottom:0'>"
+        f"Влезли сте като {st.user.name or st.user.email}</p>",
+        unsafe_allow_html=True,
+    )
+    if st.button("Излез", key="home_logout"):
         st.logout()
-
-st.sidebar.markdown("---")
-st.markdown(BRAND_CSS, unsafe_allow_html=True)
 
 st.title(t("home_title"))
 st.markdown(t("home_welcome"))

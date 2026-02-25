@@ -247,6 +247,11 @@ Use the menu on the left to navigate:
     "enrich_no_codes": {"bg": "Въведете поне един SAP код", "en": "Enter at least one SAP code"},
     "enrich_error": {"bg": "Грешка при обогатяване:", "en": "Enrichment error:"},
     "enrich_est_cost": {"bg": "Прибл. цена за Claude API: ${cost:.2f}", "en": "Est. Claude API cost: ${cost:.2f}"},
+    "enrich_quick_sync": {"bg": "Регистрирай в каталога (без API)", "en": "Register to catalog (no API)"},
+    "enrich_quick_sync_hint": {"bg": "Базова регистрация от ценовата листа — без обогатяване, без разходи.", "en": "Baseline registration from pricelist — no enrichment, no API cost."},
+    "enrich_step0": {"bg": "Регистриране...", "en": "Registering..."},
+    "enrich_basic": {"bg": "Основно обогатени", "en": "Basic enriched"},
+    "enrich_baseline": {"bg": "Регистрирани", "en": "Registered"},
 
     # --- Editable settings ---
     "save_changes": {"bg": "Запази промените", "en": "Save changes"},
@@ -284,32 +289,327 @@ def t(key: str, **kwargs) -> str:
 
 
 def lang_selector():
-    """Render a language toggle in the sidebar."""
+    """No-op stub kept for backward compatibility."""
+    pass
+
+
+# ── Navbar configuration ───────────────────────────────────────────────────
+
+_PAGE_NAV_KEY: dict[str, str] = {
+    "Основен панел": "dashboard",
+    "Нова Оферта": "offer",
+    "Нова Поръчка": "order",
+    "Търсене на продукти": "search",
+    "Настройки": "settings",
+    "Актуализиране на каталог": "catalog",
+}
+
+_NAV_ICONS: dict[str, str] = {
+    "dashboard": '<path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>',
+    "offer":     '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>',
+    "order":     '<path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>',
+    "search":    '<path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>',
+    "settings":  '<path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>',
+    "catalog":   '<path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>',
+}
+
+_NAV_LABELS: dict[str, dict[str, str]] = {
+    "dashboard": {"bg": "Панел",     "en": "Dashboard"},
+    "offer":     {"bg": "Оферта",    "en": "Offer"},
+    "order":     {"bg": "Поръчка",   "en": "Order"},
+    "search":    {"bg": "Търсене",   "en": "Search"},
+    "settings":  {"bg": "Настройки", "en": "Settings"},
+    "catalog":   {"bg": "Каталог",   "en": "Catalog"},
+}
+
+_NAV_URLS: dict[str, str] = {
+    "dashboard": "/Основен_панел",
+    "offer":     "/Нова_Оферта",
+    "order":     "/Нова_Поръчка",
+    "search":    "/Търсене",
+    "settings":  "/Настройки",
+    "catalog":   "/Актуализиране_на_каталог",
+}
+
+
+def render_navbar(current_page: str = "") -> None:
+    """Inject the sticky floating navbar into the Streamlit page."""
     lang = get_lang()
-    new_lang = st.sidebar.toggle("EN", value=(lang == "en"), key="lang_toggle")
-    target = "en" if new_lang else "bg"
-    if target != lang:
-        st.session_state.lang = target
-        st.rerun()
+
+    desktop_links = ""
+    mobile_links = ""
+    for key, url in _NAV_URLS.items():
+        label = _NAV_LABELS[key][lang]
+        icon_path = _NAV_ICONS[key]
+        active_cls = " nav-active" if key == current_page else ""
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18"'
+            ' fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">'
+            + icon_path
+            + "</svg>"
+        )
+        desktop_links += f'<a href="{url}" class="nav-link{active_cls}">{label}</a>'
+        mobile_links += (
+            f'<a href="{url}" class="mob-link{active_cls}">'
+            f'<span class="mob-icon">{svg}</span>{label}</a>'
+        )
+
+    other_lang = "bg" if lang == "en" else "en"
+    lang_label = "EN" if lang == "bg" else "BG"
+
+    toggle_js = (
+        "var d=document.getElementById('mobMenu');"
+        "var o=document.getElementById('mobOverlay');"
+        "d.classList.toggle('open');o.classList.toggle('open');"
+    )
+    close_js = (
+        "document.getElementById('mobMenu').classList.remove('open');"
+        "document.getElementById('mobOverlay').classList.remove('open');"
+    )
+
+    html = (
+        '<nav id="wNavbar">'
+        '<a href="/" class="nav-logo">'
+        '<span style="font-weight:700;color:#0086CE;font-size:1.1rem;letter-spacing:-0.02em">Romstal</span>'
+        "</a>"
+        f'<div class="nav-links">{desktop_links}</div>'
+        '<div class="nav-actions">'
+        f'<a href="?lang={other_lang}" class="lang-toggle">{lang_label}</a>'
+        f'<button class="burger" onclick="{toggle_js}">'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none"'
+        ' viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">'
+        '<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>'
+        "</svg></button>"
+        "</div></nav>"
+        f'<div id="mobOverlay" onclick="{close_js}"></div>'
+        f'<div id="mobMenu">{mobile_links}'
+        f'<div class="mob-lang"><a href="?lang={other_lang}" class="lang-toggle">{lang_label}</a></div>'
+        "</div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
 
 
 BRAND_CSS = """
 <style>
-    .stApp { font-family: 'Segoe UI', Arial, sans-serif; }
-    section[data-testid="stSidebar"] { background-color: #f0f8ff; }
-    h1, h2, h3 { color: #0086CE; }
-    .stButton>button { background-color: #0086CE; color: white; border: none; }
-    .stButton>button:hover { background-color: #006ba1; color: white; }
-    div[data-baseweb="select"]:hover { border-color: #0086CE; cursor: pointer; }
-    div[data-baseweb="select"] > div:hover { border-color: #0086CE; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Reset Streamlit chrome ───────────────────────────────────────────── */
+section[data-testid="stSidebar"]  { display: none !important; }
+#MainMenu                          { visibility: hidden !important; }
+header[data-testid="stHeader"]    { display: none !important; }
+footer                             { display: none !important; }
+
+/* ── Base ─────────────────────────────────────────────────────────────── */
+.stApp {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #F8FAFC;
+    color: #0F172A;
+}
+.block-container {
+    padding-top: 80px !important;
+    padding-left: 1.5rem !important;
+    padding-right: 1.5rem !important;
+    max-width: 1200px;
+}
+h1, h2, h3 { color: #0F172A; font-weight: 700; }
+a { color: #0086CE; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+.stButton > button {
+    background-color: #0086CE !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    min-height: 44px !important;
+    padding: 0 1.25rem !important;
+    transition: background 0.2s;
+}
+.stButton > button:hover { background-color: #006ba1 !important; }
+
+/* ── Floating Navbar ──────────────────────────────────────────────────── */
+#wNavbar {
+    position: fixed;
+    top: 8px;
+    left: 16px;
+    right: 16px;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    padding: 0 20px;
+    background: rgba(255,255,255,0.88);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid #E2E8F0;
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+}
+.nav-logo { display: flex; align-items: center; text-decoration: none; flex-shrink: 0; }
+.nav-links { display: flex; align-items: center; gap: 4px; }
+.nav-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #475569;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+.nav-link:hover { background: #F1F5F9; color: #0F172A; }
+.nav-active     { background: #E0F0FA !important; color: #0086CE !important; }
+.nav-actions    { display: flex; align-items: center; gap: 10px; }
+.lang-toggle {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #64748B;
+    text-decoration: none;
+    padding: 4px 10px;
+    border: 1px solid #CBD5E1;
+    border-radius: 6px;
+    transition: border-color 0.15s, color 0.15s;
+    letter-spacing: 0.04em;
+}
+.lang-toggle:hover { border-color: #0086CE; color: #0086CE; }
+.burger {
+    display: none;
+    background: none;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    color: #475569;
+    padding: 0;
+    transition: border-color 0.15s;
+}
+.burger:hover { border-color: #0086CE; color: #0086CE; }
+
+/* ── Mobile overlay ───────────────────────────────────────────────────── */
+#mobOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15,23,42,0.35);
+    z-index: 9990;
+    backdrop-filter: blur(2px);
+}
+#mobOverlay.open { display: block; }
+
+/* ── Mobile dropdown menu ─────────────────────────────────────────────── */
+#mobMenu {
+    position: fixed;
+    top: 72px;
+    left: 16px;
+    right: 16px;
+    z-index: 9995;
+    background: rgba(255,255,255,0.97);
+    border: 1px solid #E2E8F0;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    padding: 0 8px;
+    transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.2s;
+}
+#mobMenu.open {
+    max-height: 520px;
+    opacity: 1;
+    pointer-events: auto;
+    padding: 12px 8px;
+}
+.mob-link {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #334155;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s;
+}
+.mob-link:hover, .mob-link.nav-active { background: #EFF6FF; color: #0086CE; }
+.mob-icon { display: flex; align-items: center; color: inherit; flex-shrink: 0; }
+.mob-lang { padding: 8px 16px 4px; border-top: 1px solid #F1F5F9; margin-top: 4px; }
+
+/* ── Responsive breakpoints ───────────────────────────────────────────── */
+@media (max-width: 820px) {
+    .nav-links { display: none; }
+    .burger    { display: inline-flex; }
+}
+@media (max-width: 768px) {
+    .block-container {
+        padding-top: 72px !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+    }
+    input, textarea, select,
+    input[type="text"], input[type="number"],
+    input[type="email"], input[type="search"] { font-size: 16px !important; }
+    div[data-baseweb="select"] > div:first-child { min-height: 44px !important; }
+    h1 { font-size: 1.4rem !important; }
+    h2 { font-size: 1.2rem !important; }
+    h3 { font-size: 1.05rem !important; }
+    .main { -webkit-overflow-scrolling: touch; }
+    [data-testid="metric-container"] { padding: 0.5rem 0.4rem !important; }
+    p, li, .stMarkdown { font-size: 0.92rem !important; line-height: 1.5 !important; }
+    .stCaption, small { font-size: 0.78rem !important; }
+}
+@media (max-width: 430px) {
+    .block-container {
+        padding-left: 0.4rem !important;
+        padding-right: 0.4rem !important;
+        padding-bottom: env(safe-area-inset-bottom, 1rem) !important;
+    }
+    [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        flex: 1 1 100% !important;
+        min-width: 100% !important;
+        width: 100% !important;
+    }
+    .stButton > button {
+        width: 100% !important;
+        min-height: 48px !important;
+        font-size: 1rem !important;
+    }
+    .stLinkButton > a {
+        width: 100% !important;
+        min-height: 48px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    [data-testid="stDataFrame"] {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+    .stApp { overflow-x: hidden; }
+}
 </style>
 """
 
 
-def setup_page(page_title: str, page_icon: str):
-    """Common page setup: config, sidebar logo, CSS, language toggle."""
-    st.set_page_config(page_title=page_title, page_icon=page_icon, layout="wide")
-    st.sidebar.image("resources/logo.png", width=180)
-    lang_selector()
-    st.sidebar.markdown("---")
+def setup_page(page_title: str, page_icon: str) -> None:
+    """Common page setup: config, CSS, floating navbar."""
+    st.set_page_config(
+        page_title=page_title,
+        page_icon=page_icon,
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
     st.markdown(BRAND_CSS, unsafe_allow_html=True)
+    current_page = _PAGE_NAV_KEY.get(page_title, "")
+    render_navbar(current_page=current_page)
