@@ -538,23 +538,26 @@ def build_order_pdf(
         x_row = pdf.get_x()
 
         item_cfg = items_config.get(line["product_code"], {})
-        unit = item_cfg.get("unit", "бр")
+        unit = item_cfg.get("measure_unit", "pcs")
         quantity = item_cfg.get("quantity", line.get("quantity", 1))
-        pcs_per_unit = logistics.get(line["product_code"], {}).get("pcs_per_unit", 1)
-        total_pcs = quantity * pcs_per_unit if unit != "бр" else quantity
+        pcs_per_unit = int(logistics.get(line["product_code"], {}).get("pcs_per_carton", 1) or 1)
+        if pcs_per_unit < 1:
+            pcs_per_unit = 1
+        total_pcs = quantity * pcs_per_unit if unit == "carton" else quantity
         net_excl = line["net_price_excl_vat"]
         line_total_excl = net_excl * total_pcs
         line_total_incl = line_total_excl * 1.2
         total_excl += line_total_excl
         total_incl += line_total_incl
 
+        measure_label = "кашон" if unit == "carton" else "бр."
         row_vals = [
             "",  # image placeholder
             str(idx),
             line["product_code"],
             line["name"],
             line["brand"],
-            unit,
+            measure_label,
             f"{line['base_price']:.2f}",
             f"{line['total_discount_pct']:.1f}%",
             f"{net_excl:.2f}",
