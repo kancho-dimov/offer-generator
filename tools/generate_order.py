@@ -15,6 +15,8 @@ Usage:
     python -m tools.generate_order                    # reads .tmp/order_request.json
 """
 
+from __future__ import annotations
+
 import io
 import json
 import sys
@@ -509,13 +511,6 @@ def generate_order(request: dict | None = None) -> str:
 
     print(f"\n  Order ready: {url}")
     print(f"  PDF export (landscape A4): {pdf_url}")
-
-    # Auto-open sheet in browser (local dev only — fails silently on headless servers)
-    try:
-        import webbrowser
-        webbrowser.open(url)
-    except Exception:
-        pass
 
     return url
 

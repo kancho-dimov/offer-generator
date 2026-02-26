@@ -99,7 +99,7 @@ if orders:
         status_emoji = {"draft": "📝", "submitted": "📨", "confirmed": "✅",
                         "shipped": "🚚", "completed": "✔️"}.get(o.get("status", ""), "❓")
         ord_num = o.get("order_number", "")
-        col_a, col_b, col_c, col_d, col_e = st.columns([2, 3, 2, 1.5, 0.5])
+        col_a, col_b, col_c, col_d, col_e, col_f = st.columns([2, 3, 2, 1, 1, 0.5])
         with col_a:
             st.write(f"{status_emoji} **{ord_num}**")
         with col_b:
@@ -111,6 +111,19 @@ if orders:
             if url:
                 st.link_button(t("open"), url, use_container_width=True)
         with col_e:
+            if st.button(t("edit"), key=f"edit_ord_{ord_num}"):
+                st.session_state.edit_order = {
+                    "order_number": ord_num,
+                    "customer_id": o.get("customer_id", ""),
+                    "delivery_terms": o.get("delivery_terms", ""),
+                    "payment_terms": o.get("payment_terms", ""),
+                    "delivery_date": o.get("delivery_date", ""),
+                    "notes": o.get("notes", ""),
+                    "sales_agent_code": o.get("sales_agent_code", ""),
+                    "spreadsheet_url": url,
+                }
+                st.switch_page("pages/3_Нова_Поръчка.py")
+        with col_f:
             if st.button("🗑️", key=f"del_ord_{ord_num}", help=t("delete")):
                 delete_order(ord_num)
                 st.cache_data.clear()

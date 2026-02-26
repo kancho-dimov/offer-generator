@@ -15,6 +15,8 @@ Usage:
     python -m tools.generate_offer --mode pricelist   # override mode from CLI
 """
 
+from __future__ import annotations
+
 import io
 import json
 import sys
@@ -600,13 +602,6 @@ def generate_offer(request: dict | None = None) -> str:
     orientation = "portrait" if mode == "pricelist" else "landscape"
     print(f"\n  Offer ready: {url}")
     print(f"  PDF export ({orientation} A4): {pdf_url}")
-
-    # Auto-open sheet in browser (local dev only — fails silently on headless servers)
-    try:
-        import webbrowser
-        webbrowser.open(url)
-    except Exception:
-        pass
 
     return url
 

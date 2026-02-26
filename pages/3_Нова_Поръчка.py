@@ -34,6 +34,46 @@ if "order_email_preview" not in st.session_state:
 if "order_form_ver" not in st.session_state:
     st.session_state.order_form_ver = 0
 
+# --- Edit-order bootstrap: load items from existing order sheet ---
+_edit = st.session_state.pop("edit_order", None)
+if _edit:
+    # Store edit metadata so it persists across reruns
+    st.session_state.editing_order = _edit
+    st.session_state.order_items = []
+    st.session_state.loaded_offer = None
+    st.session_state.order_result = None
+    # Read items from the existing order spreadsheet
+    _surl = _edit.get("spreadsheet_url", "")
+    _sid = _surl.split("/d/")[1].split("/")[0] if "/d/" in _surl else ""
+    if _sid:
+        try:
+            _rows = read_sheet(_sid, "'Поръчка'!A15:M200")
+            for _row in (_rows or []):
+                if not _row or not str(_row[0]).strip().isdigit():
+                    break
+                _row += [""] * (13 - len(_row))
+                _code = _row[2].strip()
+                _name = _row[3].strip()
+                _brand = _row[4].strip()
+                _unit = "carton" if str(_row[5]).strip() == "кашон" else "pcs"
+                _qty = int(float(_row[7])) if _row[7] else 1
+                _bp = float(str(_row[9]).replace(",", "")) if _row[9] else 0.0
+                _disc_raw = str(_row[10]).replace("%", "").strip()
+                _disc = float(_disc_raw) if _disc_raw else None
+                if _code:
+                    st.session_state.order_items.append({
+                        "product_code": _code,
+                        "name": _name,
+                        "brand": _brand,
+                        "base_price": _bp,
+                        "quantity": _qty,
+                        "measure_unit": _unit,
+                        "discount_override": _disc if _disc and _disc > 0 else None,
+                    })
+        except Exception:
+            pass  # Proceed with empty items if read fails
+    st.session_state.order_form_ver += 1
+
 # Form version suffix — forces fresh widgets after reset
 _v = st.session_state.order_form_ver
 
@@ -52,9 +92,15 @@ with tc2:
         st.session_state.order_result = None
         st.session_state.loaded_offer = "__reset__"
         st.session_state.order_email_preview = None
+        st.session_state.pop("editing_order", None)
         if "order_pdf_bytes" in st.session_state:
             del st.session_state.order_pdf_bytes
         st.rerun()
+
+# --- Edit-order banner ---
+_editing = st.session_state.get("editing_order")
+if _editing:
+    st.info(t("edit_order_banner", num=_editing.get("order_number", "")))
 
 
 @st.cache_data(ttl=300)
@@ -96,14 +142,18 @@ def get_filter_options():
 
 
 # --- Step 0: Mode selection ---
-st.subheader(t("mode"))
-order_mode = st.radio(
-    t("mode_question"),
-    ["from_offer", "standalone"],
-    format_func=lambda x: t("from_offer") if x == "from_offer" else t("standalone"),
-    horizontal=True,
-    key=f"ord_mode_{_v}",
-)
+# In edit mode, force standalone so the customer selector is shown without offer picker
+if not _editing:
+    st.subheader(t("mode"))
+    order_mode = st.radio(
+        t("mode_question"),
+        ["from_offer", "standalone"],
+        format_func=lambda x: t("from_offer") if x == "from_offer" else t("standalone"),
+        horizontal=True,
+        key=f"ord_mode_{_v}",
+    )
+else:
+    order_mode = "standalone"
 
 # --- Step 1: Customer / Offer ---
 st.subheader(t("step1_customer"))
@@ -210,12 +260,21 @@ if order_mode == "from_offer":
         selected_customer = customer_map.get(selected_name) if selected_name else None
         selected_offer_number = ""
 else:
-    # Standalone: pick customer
+    # Standalone / edit-mode: pick customer (pre-select if editing)
+    _edit_cust_id = (_editing or {}).get("customer_id", "")
+    _edit_cust_name = None
+    if _edit_cust_id:
+        for c in customers:
+            if c.get("customer_id") == _edit_cust_id:
+                _edit_cust_name = c["company_name"]
+                break
+    customer_names = list(customer_map.keys())
+    _cust_default_idx = customer_names.index(_edit_cust_name) if _edit_cust_name in customer_names else None
     cc1, cc2 = st.columns([4, 1])
     with cc1:
         selected_name = st.selectbox(
-            t("customer"), list(customer_map.keys()), key=f"ord_cust_standalone_{_v}",
-            index=None, placeholder=t("select_customer_placeholder"),
+            t("customer"), customer_names, key=f"ord_cust_standalone_{_v}",
+            index=_cust_default_idx, placeholder=t("select_customer_placeholder"),
         )
     with cc2:
         if selected_name:
@@ -381,21 +440,34 @@ term_key = "name_en" if lang == "en" else "name_bg"
 
 col_a, col_b, col_c = st.columns(3)
 
+# Pre-fill from editing metadata if present
+_edit_del_terms = (_editing or {}).get("delivery_terms", "")
+_edit_pay_terms = (_editing or {}).get("payment_terms", "")
+_edit_del_date_str = (_editing or {}).get("delivery_date", "")
+_edit_notes = (_editing or {}).get("notes", "")
+_edit_agent = (_editing or {}).get("sales_agent_code", "12104")
+
 with col_a:
     del_options = [dt.get(term_key, dt.get("name_bg", "")) for dt in delivery_terms_list] if delivery_terms_list else ["Door delivery"]
-    delivery_terms = st.selectbox(t("delivery_terms"), del_options, key=f"ord_del_terms_{_v}")
+    _del_idx = del_options.index(_edit_del_terms) if _edit_del_terms in del_options else 0
+    delivery_terms = st.selectbox(t("delivery_terms"), del_options, index=_del_idx, key=f"ord_del_terms_{_v}")
 
-    default_delivery_date = date.today() + timedelta(days=1)
-    delivery_date = st.date_input(t("delivery_date"), value=default_delivery_date, key=f"ord_del_date_{_v}")
+    try:
+        from datetime import datetime as _dt
+        _default_date = _dt.strptime(_edit_del_date_str, "%d.%m.%Y").date() if _edit_del_date_str else date.today() + timedelta(days=1)
+    except (ValueError, TypeError):
+        _default_date = date.today() + timedelta(days=1)
+    delivery_date = st.date_input(t("delivery_date"), value=_default_date, key=f"ord_del_date_{_v}")
 
 with col_b:
     pay_options = [pt.get(term_key, pt.get("name_bg", "")) for pt in payment_terms_list] if payment_terms_list else ["Bank transfer 14 days"]
-    payment_terms = st.selectbox(t("payment_terms"), pay_options, key=f"ord_pay_terms_{_v}")
+    _pay_idx = pay_options.index(_edit_pay_terms) if _edit_pay_terms in pay_options else 0
+    payment_terms = st.selectbox(t("payment_terms"), pay_options, index=_pay_idx, key=f"ord_pay_terms_{_v}")
 
 with col_c:
-    sales_agent = st.text_input(t("sales_agent"), value="12104", key=f"ord_agent_{_v}")
+    sales_agent = st.text_input(t("sales_agent"), value=_edit_agent or "12104", key=f"ord_agent_{_v}")
 
-notes = st.text_area(t("notes"), placeholder=t("notes_placeholder"), key=f"ord_notes_{_v}")
+notes = st.text_area(t("notes"), value=_edit_notes, placeholder=t("notes_placeholder"), key=f"ord_notes_{_v}")
 
 custom_discount_pct = st.number_input(t("extra_discount"), min_value=0.0, max_value=50.0, value=0.0, step=0.5, key=f"ord_extra_disc_{_v}")
 

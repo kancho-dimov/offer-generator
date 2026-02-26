@@ -183,7 +183,9 @@ Use the menu on the left to navigate:
     "new_offer_reset": {"bg": "Нова оферта", "en": "New offer"},
     "new_order_reset": {"bg": "Нова поръчка", "en": "New order"},
 
-    # --- Dashboard delete ---
+    # --- Dashboard actions ---
+    "edit": {"bg": "Редакция", "en": "Edit"},
+    "edit_order_banner": {"bg": "Редактирате поръчка {num} — ще бъде създадена нова поръчка.", "en": "Editing order {num} — a new order will be created."},
     "delete": {"bg": "Изтрий", "en": "Delete"},
     "confirm_delete_offer": {"bg": "Изтрий офертата {num}?", "en": "Delete offer {num}?"},
     "confirm_delete_order": {"bg": "Изтрий поръчката {num}?", "en": "Delete order {num}?"},

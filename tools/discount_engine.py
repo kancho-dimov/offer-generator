@@ -13,6 +13,8 @@ Usage:
     from tools.discount_engine import load_customer, load_discount_rules, calculate_offer_lines
 """
 
+from __future__ import annotations
+
 from datetime import date, datetime
 from tools.sheets_api import read_sheet
 
