@@ -295,7 +295,7 @@ def lang_selector():
 
 # ── Navbar configuration ───────────────────────────────────────────────────
 
-_PAGE_NAV_KEY: dict[str, str] = {
+_PAGE_NAV_KEY = {
     "Основен панел": "dashboard",
     "Нова Оферта": "offer",
     "Нова Поръчка": "order",
@@ -304,7 +304,7 @@ _PAGE_NAV_KEY: dict[str, str] = {
     "Актуализиране на каталог": "catalog",
 }
 
-_NAV_ICONS: dict[str, str] = {
+_NAV_ICONS = {
     "dashboard": '<path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>',
     "offer":     '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>',
     "order":     '<path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>',
@@ -313,7 +313,7 @@ _NAV_ICONS: dict[str, str] = {
     "catalog":   '<path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>',
 }
 
-_NAV_LABELS: dict[str, dict[str, str]] = {
+_NAV_LABELS = {
     "dashboard": {"bg": "Панел",     "en": "Dashboard"},
     "offer":     {"bg": "Оферта",    "en": "Offer"},
     "order":     {"bg": "Поръчка",   "en": "Order"},
@@ -322,7 +322,7 @@ _NAV_LABELS: dict[str, dict[str, str]] = {
     "catalog":   {"bg": "Каталог",   "en": "Catalog"},
 }
 
-_NAV_URLS: dict[str, str] = {
+_NAV_URLS = {
     "dashboard": "/Основен_панел",
     "offer":     "/Нова_Оферта",
     "order":     "/Нова_Поръчка",
