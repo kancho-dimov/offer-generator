@@ -45,6 +45,8 @@ if _edit:
     # Read items from the existing order spreadsheet
     _surl = _edit.get("spreadsheet_url", "")
     _sid = _surl.split("/d/")[1].split("/")[0] if "/d/" in _surl else ""
+    # Store spreadsheet_id so the generate handler can pass it for deletion
+    st.session_state.editing_order["spreadsheet_id"] = _sid
     if _sid:
         try:
             _rows = read_sheet(_sid, "'Поръчка'!A15:M200")
@@ -100,7 +102,12 @@ with tc2:
 # --- Edit-order banner ---
 _editing = st.session_state.get("editing_order")
 if _editing:
-    st.info(t("edit_order_banner", num=_editing.get("order_number", "")))
+    _edit_ord_status = _editing.get("status", "draft")
+    _edit_ord_ver = int(_editing.get("version", 1) or 1)
+    if _edit_ord_status == "draft":
+        st.info(t("edit_order_draft_banner", num=_editing.get("order_number", "")))
+    else:
+        st.warning(t("edit_order_revision_banner", num=_editing.get("order_number", ""), ver=_edit_ord_ver + 1))
 
 
 @st.cache_data(ttl=300)
@@ -500,26 +507,43 @@ if st.session_state.order_items and selected_customer:
             request["offer_number"] = selected_offer_number
         if custom_discount_pct > 0:
             request["custom_discounts"] = [{"name": "Допълнителна отстъпка", "percentage": custom_discount_pct}]
+        # Attach edit context so generate_order knows it's an overwrite/revision
+        _editing_ord = st.session_state.get("editing_order")
+        if _editing_ord:
+            request["editing_order_number"] = _editing_ord["order_number"]
+            request["editing_spreadsheet_id"] = _editing_ord.get("spreadsheet_id", "")
+            request["editing_status"] = _editing_ord.get("status", "draft")
+            request["editing_base_id"] = _editing_ord.get("base_id", _editing_ord["order_number"])
+            request["editing_version"] = int(_editing_ord.get("version", 1) or 1)
 
         with st.spinner(t("generating_order")):
             try:
-                url = generate_order(request)
-                # Load order data for email sending
                 import json
                 from pathlib import Path
 
+                gen_result = generate_order(request)
+                url = gen_result["url"]
+                order_number = gen_result["order_number"]
+                spreadsheet_id = gen_result["spreadsheet_id"]
+
+                # Update editing_order context for subsequent regenerations (draft overwrite)
+                if _editing_ord and request.get("editing_status") == "draft":
+                    st.session_state.editing_order["spreadsheet_id"] = spreadsheet_id
+                    st.session_state.editing_order["spreadsheet_url"] = url
+
+                # Load pdf info from tmp file
                 tmp_dir = Path(__file__).resolve().parent.parent / ".tmp"
-                order_files = sorted(tmp_dir.glob("ORD-*_data.json"))
+                order_file = tmp_dir / f"{order_number.replace('/', '-')}_data.json"
                 order_data = {}
-                if order_files:
-                    with open(order_files[-1], encoding="utf-8") as f:
+                if order_file.exists():
+                    with open(order_file, encoding="utf-8") as f:
                         order_data = json.load(f)
 
                 st.session_state.order_result = {
                     "url": url,
                     "pdf_path": order_data.get("pdf_path", ""),
                     "pdf_url": order_data.get("pdf_url", ""),
-                    "order_number": order_data.get("order_number", ""),
+                    "order_number": order_number,
                     "offer_number": selected_offer_number,
                     "customer": selected_customer,
                     "delivery_date": delivery_date.strftime("%d.%m.%Y"),

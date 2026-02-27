@@ -53,9 +53,27 @@ if codes:
     est_cost = len(codes) * 2 * 0.003
     st.caption(t("enrich_est_cost", cost=est_cost))
 
-# ── Section 2: Run pipeline ─────────────────────────────────────────────────
+# ── Section 2: Quick Sync (baseline registration, no API) ───────────────────
 st.divider()
 
+st.caption(t("enrich_quick_sync_hint"))
+if st.button("⚡ " + t("enrich_quick_sync"), disabled=not codes, use_container_width=True):
+    from tools.update_master_catalog import ensure_baseline_entries, load_pricelist_raw
+    with st.spinner(t("enrich_step0")):
+        qs_result = ensure_baseline_entries(codes, load_pricelist_raw())
+    if qs_result["written"]:
+        st.success(f"✅ Регистрирани {qs_result['written']} нови продукта")
+    if qs_result["already_present"]:
+        st.info(f"ℹ️ {qs_result['already_present']} вече са в каталога")
+    if qs_result["not_in_pricelist"]:
+        st.error(f"❌ Не са намерени в ценовата листа: {', '.join(qs_result['not_in_pricelist'])}")
+    from tools.product_search import invalidate_cache
+    invalidate_cache()
+    st.cache_data.clear()
+
+st.divider()
+
+# ── Section 3: Full enrichment pipeline ─────────────────────────────────────
 if st.button(t("enrich_start"), type="primary", disabled=not codes, use_container_width=True):
     if not codes:
         st.warning(t("enrich_no_codes"))
@@ -64,6 +82,7 @@ if st.button(t("enrich_start"), type="primary", disabled=not codes, use_containe
     st.subheader(t("enrich_progress"))
 
     step_labels = {
+        0: t("enrich_step0"),
         1: t("enrich_step1"),
         2: t("enrich_step2"),
         3: t("enrich_step3"),
@@ -101,14 +120,15 @@ if st.button(t("enrich_start"), type="primary", disabled=not codes, use_containe
         invalidate_cache()
         st.cache_data.clear()
 
-        # ── Section 3: Results summary ──────────────────────────────────────
+        # ── Section 4: Results summary ───────────────────────────────────────
         st.subheader(t("enrich_results"))
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric(t("enrich_total"), result["total"])
-        c2.metric(t("enrich_mapped"), result["mapped"])
-        c3.metric(t("enrich_scraped"), result["scraped"])
-        c4.metric(t("enrich_translated"), result["translated"])
+        c2.metric(t("enrich_baseline"), result["baseline_written"])
+        c3.metric(t("enrich_mapped"), result["mapped"])
+        c4.metric(t("enrich_basic"), result["basic"])
+        c5.metric(t("enrich_translated"), result["translated"])
 
         # Product-level results table
         products = result["products"]
@@ -130,6 +150,7 @@ if st.button(t("enrich_start"), type="primary", disabled=not codes, use_containe
 
             enrich_icon = {
                 "success": "🟢",
+                "basic": "🔵",
                 "failed": "🔴",
                 "skipped": "⚪",
             }.get(p.get("enrich_status", ""), "⚪")
@@ -144,6 +165,16 @@ if st.button(t("enrich_start"), type="primary", disabled=not codes, use_containe
                 "Match": f"{status_icon} {p.get('match_status', '')}",
                 "Scrape": f"{scrape_icon} {p.get('scrape_status', '')}",
                 "Translate": translate_cell,
+            })
+
+        # Add error rows for codes not found in pricelist
+        for code in result.get("not_in_pricelist", []):
+            table_data.append({
+                "Code": code,
+                "Name": "— не е в ценовата листа —",
+                "Match": "🔴 не е в ценовата листа",
+                "Scrape": "⚪",
+                "Translate": "⚪ —",
             })
 
         st.dataframe(table_data, use_container_width=True)

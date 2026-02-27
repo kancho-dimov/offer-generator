@@ -21,10 +21,15 @@ st.set_page_config(
 # Authentication gate (requires .streamlit/secrets.toml with [auth.google])
 # Skipped when DISABLE_AUTH=1 (local dev without OAuth Web client)
 # ---------------------------------------------------------------------------
+try:
+    _secrets_google = st.secrets.get("auth", {}).get("google", None)
+except Exception:
+    _secrets_google = None
+
 _auth_enabled = (
     os.environ.get("DISABLE_AUTH", "0") != "1"
     and hasattr(st, "login")
-    and st.secrets.get("auth", {}).get("google", None) is not None
+    and _secrets_google is not None
 )
 
 if _auth_enabled:

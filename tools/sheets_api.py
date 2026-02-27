@@ -5,7 +5,7 @@ Usage:
     from tools.sheets_api import read_sheet, write_sheet, get_sheet_names
 """
 
-from tools.google_auth import get_sheets_service
+from tools.google_auth import get_drive_service, get_sheets_service
 
 
 def get_sheet_names(spreadsheet_id: str) -> list[str]:
@@ -141,6 +141,12 @@ def delete_rows(spreadsheet_id: str, sheet_name: str, start_row: int, end_row: i
     return service.spreadsheets().batchUpdate(
         spreadsheetId=spreadsheet_id, body=request
     ).execute()
+
+
+def delete_spreadsheet(spreadsheet_id: str) -> None:
+    """Permanently delete a Google Spreadsheet file from Drive."""
+    drive = get_drive_service()
+    drive.files().delete(fileId=spreadsheet_id).execute()
 
 
 def clear_sheet(spreadsheet_id: str, range_name: str) -> dict:

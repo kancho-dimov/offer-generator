@@ -24,6 +24,9 @@ from bs4 import BeautifulSoup
 
 TMP_DIR = Path(__file__).resolve().parent.parent / ".tmp"
 
+# Change to "www.romstal.bg" when it's fixed and BG content is stable
+SCRAPE_DOMAIN = "www.romstal.ro"
+
 # Browser-like headers to avoid blocks
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -50,9 +53,9 @@ def slugify(text: str) -> str:
 
 
 def construct_product_url(long_desc_ro: str) -> str:
-    """Construct a romstal.ro product URL from the Romanian description."""
+    """Construct a product URL from the Romanian description."""
     slug = slugify(long_desc_ro)
-    return f"https://www.romstal.ro/{slug}.html"
+    return f"https://{SCRAPE_DOMAIN}/{slug}.html"
 
 
 def fetch_page(url: str) -> str | None:

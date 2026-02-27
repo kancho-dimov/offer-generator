@@ -32,8 +32,8 @@ from tools.discount_engine import (
 )
 from tools.format_offer_sheet import format_offer_sheet
 from tools.google_auth import get_sheets_service
-from tools.offer_log import log_offer
-from tools.sheets_api import read_sheet, write_sheet
+from tools.offer_log import log_offer, update_offer_log_row
+from tools.sheets_api import delete_spreadsheet, read_sheet, write_sheet
 
 if hasattr(sys.stdout, "buffer") and getattr(sys.stdout, "encoding", "").lower() not in ("utf-8", "utf8"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -462,11 +462,18 @@ def _get_pdf_url(spreadsheet_id: str, sheet_id: int, mode: str) -> str:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
-def generate_offer(request: dict | None = None) -> str:
+def generate_offer(request: dict | None = None) -> dict:
     """
     Generate an offer from a request dict or .tmp/offer_request.json.
 
-    Returns the URL of the created Google Sheet.
+    Returns a dict with keys: url, offer_number, spreadsheet_id, pdf_url.
+
+    Edit context (optional keys in request):
+      editing_offer_number   — existing offer ID being edited
+      editing_spreadsheet_id — old spreadsheet to delete (draft overwrite only)
+      editing_status         — "draft" | "sent" (determines overwrite vs revision)
+      editing_base_id        — base_id to carry forward for revisions
+      editing_version        — current version number (revision will increment)
     """
     # Load request
     if request is None:
@@ -480,6 +487,13 @@ def generate_offer(request: dict | None = None) -> str:
     customer_id = request["customer_id"]
     items = request["items"]
     custom_discounts = request.get("custom_discounts", [])
+
+    # Extract edit context
+    editing_offer_number = request.get("editing_offer_number")
+    editing_spreadsheet_id = request.get("editing_spreadsheet_id")
+    editing_status = request.get("editing_status", "draft")
+    editing_base_id = request.get("editing_base_id", "")
+    editing_version = int(request.get("editing_version") or 1)
 
     print(f"Generating {mode} for customer {customer_id}...")
 
@@ -496,9 +510,23 @@ def generate_offer(request: dict | None = None) -> str:
     # Calculate prices
     result = calculate_offer_lines(items, customer, rules, custom_discounts, products)
 
-    # Generate offer number
-    offer_number = get_next_offer_number(mode)
-    print(f"  Offer number: {offer_number}")
+    # Determine offer number and versioning
+    if not editing_offer_number:
+        # Fresh creation
+        offer_number = get_next_offer_number(mode)
+        version = 1
+        base_id = offer_number
+    elif editing_status == "draft":
+        # Draft overwrite — reuse same ID, no new version
+        offer_number = editing_offer_number
+        version = 1
+        base_id = editing_base_id or editing_offer_number
+    else:
+        # Post-send revision — new ID, incremented version, same base_id
+        offer_number = get_next_offer_number(mode)
+        version = editing_version + 1
+        base_id = editing_base_id or editing_offer_number
+    print(f"  Offer number: {offer_number} (v{version})")
 
     # Load branding
     branding = load_branding()
@@ -578,8 +606,19 @@ def generate_offer(request: dict | None = None) -> str:
         print(f"  Warning: PDF generation failed: {e}")
         pdf_path = None
 
+    # Delete old draft spreadsheet before logging the new one
+    if editing_offer_number and editing_status == "draft" and editing_spreadsheet_id:
+        try:
+            delete_spreadsheet(editing_spreadsheet_id)
+            print(f"  Deleted old draft spreadsheet: {editing_spreadsheet_id}")
+        except Exception as e:
+            print(f"  Warning: could not delete old draft sheet: {e}")
+
     # Log to Offers_Log tab
-    log_offer(offer_number, mode, customer, result, url, pdf_url)
+    if editing_offer_number and editing_status == "draft":
+        update_offer_log_row(offer_number, result, url, pdf_url)
+    else:
+        log_offer(offer_number, mode, customer, result, url, pdf_url, version=version, base_id=base_id)
     print("  Logged to Offers_Log")
 
     # Save offer data for downstream exports (slides, gamma)
@@ -603,7 +642,14 @@ def generate_offer(request: dict | None = None) -> str:
     print(f"\n  Offer ready: {url}")
     print(f"  PDF export ({orientation} A4): {pdf_url}")
 
-    return url
+    return {
+        "url": url,
+        "offer_number": offer_number,
+        "spreadsheet_id": spreadsheet_id,
+        "pdf_url": pdf_url,
+        "version": version,
+        "base_id": base_id,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -223,18 +223,22 @@ def translate_from_nomenclature(product: dict) -> dict | None:
     """
     name_bg = product.get("name_bg", "")
     short_name_ro = product.get("short_name_ro", "")
+    long_desc_ro = product.get("long_desc_ro", "")
     supplier_name = product.get("supplier_name", "")
     category_ro = product.get("category", "")
     class_ro = product.get("class_name", "")
     subclass_ro = product.get("subclass", "")
 
-    if not (short_name_ro or name_bg):
+    if not (short_name_ro or name_bg or long_desc_ro):
         return None
+
+    # Use the best available name hint; truncate long descriptions to keep tokens low
+    name_hint = short_name_ro or long_desc_ro[:300]
 
     prompt = f"""Clean and translate the following HVAC product data for a Bulgarian B2B catalog.
 
 **Existing Bulgarian name:** {name_bg}
-**Romanian short name:** {short_name_ro}
+**Romanian name / description:** {name_hint}
 **Brand/Supplier:** {supplier_name}
 **Category (Romanian):** {category_ro}
 **Class (Romanian):** {class_ro}
@@ -257,6 +261,40 @@ Return ONLY valid JSON, no other text."""
         return json.loads(text)
     except Exception as e:
         print(f"  Nomenclature translation error: {e}")
+        return None
+
+
+def enrich_from_bg_name(product: dict) -> dict | None:
+    """
+    Lightweight enrichment using only the BG product name.
+    For 'pricelist_only' products with no Romanian nomenclature data.
+    Extracts brand (from name text), category, short_description.
+    ~150–200 tokens per call (~$0.0001).
+    """
+    name_bg = product.get("name_bg", "")
+    if not name_bg:
+        return None
+
+    prompt = f"""This is a Bulgarian HVAC/plumbing product name from a B2B pricelist:
+
+"{name_bg}"
+
+Return JSON with ONLY:
+1. "brand" - the manufacturer/brand name visible in the product name. Strip legal suffixes (SRL, SA, EOOD, OOD, etc.). Return "" if unclear.
+2. "category" - the product type in Bulgarian (choose one: Радиатори / Смесители / Стенни котли / Бойлери / Помпи / Тръби и фитинги / Кранове и аксесоари / Климатизация / Подово отопление / Друго).
+3. "short_description" - one Bulgarian sentence, max 100 chars, describing what this product is.
+
+Return ONLY valid JSON, no other text."""
+
+    try:
+        text = _claude(SYSTEM_PROMPT, prompt, max_tokens=250).strip()
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+        return json.loads(text)
+    except Exception as e:
+        print(f"  enrich_from_bg_name error: {e}")
         return None
 
 
@@ -289,7 +327,8 @@ def enrich_products(products: list[dict]) -> list[dict]:
                 else:
                     product["enriched_data"] = None
                     product["enrich_status"] = "failed"
-                    print("  FAILED")
+                    product["enrich_error"] = "Няма достатъчно данни от номенклатурата (липсват short_name_ro, name_bg и long_desc_ro)"
+                    print("  FAILED — insufficient nomenclature data")
             else:
                 print("  Skipping - no scraped data and no nomenclature data")
                 product["enriched_data"] = None

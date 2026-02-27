@@ -1,8 +1,15 @@
 """
 Import logistics/packaging data from the AMB Excel file into the Logistics tab.
 
-Keeps only pcs (base unit) and carton (AMB2 = next packaging tier above pcs).
-Orders can be placed in pcs or cartons; carton qty = pcs_per_carton × number_of_cartons.
+Column layout of the source file (Ambalaje 29.10.2024.xlsx):
+  Col 0: Material (SAP code)
+  Col 1: Denumire (product name)
+  Col 2: Unitate de masura baza (base unit of measure)
+  Col 3: Furnizor / Producator SAP (supplier)
+  Col 4: AMB1 SAP = pcs (always 1 — base unit, not used)
+  Col 5: AMB2 SAP = pcs per carton
+  Col 6: AMB3 SAP = pcs per pallet
+  Col 7: AMB4 SAP (not used)
 
 Usage:
     python -m tools.import_logistics                              # default path
@@ -22,17 +29,17 @@ if hasattr(sys.stdout, "buffer") and getattr(sys.stdout, "encoding", "").lower()
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 MASTER_CATALOG_ID = "1O1rD0PdKIIY8qKWkNsdElEcdsg1-JQQG1WmfuVXrUVY"
-DEFAULT_FILE = Path(__file__).resolve().parent.parent / "resources" / "AMB_24.04.2023.xlsx"
+DEFAULT_FILE = Path(__file__).resolve().parent.parent / "resources" / "AMB_29.10.2024.xlsx"
 
 HEADERS = [
     "product_code",     # SAP Material number
     "description",      # Romanian product name (for reference)
-    "division",         # HIDRO, TERMO, etc.
+    "division",         # not present in new file — kept for column compatibility
     "base_unit",        # buc (pcs), m, kg, etc.
     "supplier",         # Manufacturer/supplier
-    "pcs_per_carton",   # AMB1: pieces per carton/box
-    "pcs_per_pallet",   # AMB2: pieces per pallet
-    "min_order_qty",    # Minimum order qty for direct import
+    "pcs_per_carton",   # AMB2: pieces per carton
+    "pcs_per_pallet",   # AMB3: pieces per pallet
+    "min_order_qty",    # not present in new file — kept for column compatibility
 ]
 
 
@@ -61,20 +68,19 @@ def import_logistics(file_path: str | Path | None = None):
     rows = []
     skipped = 0
     for row in ws.iter_rows(min_row=2, values_only=True):
-        # Cols: Material, Denumire, Divizia, UM, DistPol, StocPol, Categ, Furnizor,
-        #       AMB1, AMB2, AMB3, AMB4, CANT_minima
+        # Cols: Material, Denumire, UM, Furnizor, AMB1(pcs), AMB2(pcs/carton), AMB3(pcs/pallet), AMB4
         if not row or not row[0]:
             skipped += 1
             continue
 
         material = str(row[0]).strip()
         description = str(row[1] or "").strip()
-        division = str(row[2] or "").strip()
-        base_unit = str(row[3] or "").strip()
-        supplier = str(row[7] or "").strip()
-        pcs_per_carton = _parse_int(row[8])   # AMB1 = pcs per carton/box
-        pcs_per_pallet = _parse_int(row[9])   # AMB2 = pcs per pallet
-        min_order_qty = _parse_int(row[12])
+        division = ""                          # not in new file
+        base_unit = str(row[2] or "").strip()
+        supplier = str(row[3] or "").strip()
+        pcs_per_carton = _parse_int(row[5])   # AMB2 = pcs per carton
+        pcs_per_pallet = _parse_int(row[6])   # AMB3 = pcs per pallet
+        min_order_qty = 0                      # not in new file
 
         rows.append([
             material, description, division, base_unit, supplier,

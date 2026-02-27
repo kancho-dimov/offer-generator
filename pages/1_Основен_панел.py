@@ -21,7 +21,7 @@ def load_offers():
 
 @st.cache_data(ttl=60)
 def load_orders():
-    rows = read_sheet(MASTER_CATALOG_ID, "'Orders'!A:O")
+    rows = read_sheet(MASTER_CATALOG_ID, "'Orders'!A:Q")
     if not rows or len(rows) < 2:
         return []
     headers = rows[0]
@@ -29,9 +29,32 @@ def load_orders():
     for row in rows[1:]:
         if not row or not row[0]:
             continue
-        row += [""] * (len(headers) - len(row))
-        orders.append(dict(zip(headers, row)))
+        row = list(row) + [""] * (17 - len(row))
+        d = dict(zip(headers, row[: len(headers)]))
+        try:
+            d["version"] = int(d.get("version") or 1)
+        except (ValueError, TypeError):
+            d["version"] = 1
+        if not d.get("base_id"):
+            d["base_id"] = d.get("order_number", "")
+        orders.append(d)
     return orders
+
+
+def _group_latest(records: list, id_field: str) -> list:
+    """Group records by base_id and return the latest version of each."""
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for r in records:
+        groups[r.get("base_id", r[id_field])].append(r)
+    result = []
+    for base_id, group in groups.items():
+        group_sorted = sorted(group, key=lambda x: int(x.get("version", 1) or 1))
+        latest = group_sorted[-1]
+        latest["_history"] = group_sorted[:-1]  # older versions only
+        result.append(latest)
+    result.sort(key=lambda x: x.get("created_date", ""), reverse=True)
+    return result
 
 
 offers = load_offers()
@@ -65,14 +88,18 @@ st.markdown("---")
 # ─── Recent Offers ─────────────────────────────────────────
 st.subheader(t("recent_offers"))
 if offers:
-    recent_offers = list(reversed(offers[-10:]))
+    STATUS_EMOJI_OFFER = {"draft": "📝", "sent": "📨", "accepted": "✅",
+                          "expired": "⏰", "converted_to_order": "📦"}
+    recent_offers = _group_latest(offers, "offer_number")[:10]
     for o in recent_offers:
-        status_emoji = {"draft": "📝", "sent": "📨", "accepted": "✅",
-                        "expired": "⏰", "converted_to_order": "📦"}.get(o.get("status", ""), "❓")
+        status_emoji = STATUS_EMOJI_OFFER.get(o.get("status", ""), "❓")
         ofr_num = o.get("offer_number", "")
-        col_a, col_b, col_c, col_d, col_e = st.columns([2, 3, 2, 1.5, 0.5])
+        ver = int(o.get("version", 1) or 1)
+        ver_badge = f" `v{ver}`" if ver > 1 else ""
+        history = o.get("_history", [])
+        col_a, col_b, col_c, col_d, col_e, col_f = st.columns([2.2, 3, 2, 1.2, 1.2, 0.5])
         with col_a:
-            st.write(f"{status_emoji} **{ofr_num}**")
+            st.write(f"{status_emoji} **{ofr_num}**{ver_badge}")
         with col_b:
             st.write(o.get("customer_name", ""))
         with col_c:
@@ -82,10 +109,37 @@ if offers:
             if url:
                 st.link_button(t("open"), url, use_container_width=True)
         with col_e:
+            if st.button(t("edit"), key=f"edit_ofr_{ofr_num}"):
+                st.session_state.editing_offer = {
+                    "offer_number": ofr_num,
+                    "customer_id": o.get("customer_id", ""),
+                    "mode": o.get("mode", "offer"),
+                    "status": o.get("status", "draft"),
+                    "spreadsheet_url": url,
+                    "version": ver,
+                    "base_id": o.get("base_id", ofr_num),
+                }
+                st.switch_page("pages/2_Нова_Оферта.py")
+        with col_f:
             if st.button("🗑️", key=f"del_ofr_{ofr_num}", help=t("delete")):
                 delete_offer(ofr_num)
                 st.cache_data.clear()
                 st.rerun()
+        if history:
+            with st.expander(t("version_history", n=len(history))):
+                for h in reversed(history):
+                    h_num = h.get("offer_number", "")
+                    h_ver = int(h.get("version", 1) or 1)
+                    h_status = STATUS_EMOJI_OFFER.get(h.get("status", ""), "❓")
+                    h_url = h.get("spreadsheet_url", "")
+                    hc1, hc2, hc3 = st.columns([3, 2, 2])
+                    with hc1:
+                        st.caption(f"{h_status} {h_num} v{h_ver}")
+                    with hc2:
+                        st.caption(h.get("created_date", ""))
+                    with hc3:
+                        if h_url:
+                            st.link_button(t("open"), h_url, use_container_width=True)
 else:
     st.info(t("no_offers_yet"))
 
@@ -94,14 +148,18 @@ st.markdown("---")
 # ─── Recent Orders ─────────────────────────────────────────
 st.subheader(t("recent_orders"))
 if orders:
-    recent_orders = list(reversed(orders[-10:]))
+    STATUS_EMOJI_ORDER = {"draft": "📝", "submitted": "📨", "confirmed": "✅",
+                          "shipped": "🚚", "completed": "✔️"}
+    recent_orders = _group_latest(orders, "order_number")[:10]
     for o in recent_orders:
-        status_emoji = {"draft": "📝", "submitted": "📨", "confirmed": "✅",
-                        "shipped": "🚚", "completed": "✔️"}.get(o.get("status", ""), "❓")
+        status_emoji = STATUS_EMOJI_ORDER.get(o.get("status", ""), "❓")
         ord_num = o.get("order_number", "")
-        col_a, col_b, col_c, col_d, col_e, col_f = st.columns([2, 3, 2, 1, 1, 0.5])
+        ver = int(o.get("version", 1) or 1)
+        ver_badge = f" `v{ver}`" if ver > 1 else ""
+        history = o.get("_history", [])
+        col_a, col_b, col_c, col_d, col_e, col_f = st.columns([2.2, 3, 2, 1.2, 1.2, 0.5])
         with col_a:
-            st.write(f"{status_emoji} **{ord_num}**")
+            st.write(f"{status_emoji} **{ord_num}**{ver_badge}")
         with col_b:
             st.write(o.get("customer_name", ""))
         with col_c:
@@ -121,6 +179,9 @@ if orders:
                     "notes": o.get("notes", ""),
                     "sales_agent_code": o.get("sales_agent_code", ""),
                     "spreadsheet_url": url,
+                    "status": o.get("status", "draft"),
+                    "version": ver,
+                    "base_id": o.get("base_id", ord_num),
                 }
                 st.switch_page("pages/3_Нова_Поръчка.py")
         with col_f:
@@ -128,6 +189,21 @@ if orders:
                 delete_order(ord_num)
                 st.cache_data.clear()
                 st.rerun()
+        if history:
+            with st.expander(t("version_history", n=len(history))):
+                for h in reversed(history):
+                    h_num = h.get("order_number", "")
+                    h_ver = int(h.get("version", 1) or 1)
+                    h_status = STATUS_EMOJI_ORDER.get(h.get("status", ""), "❓")
+                    h_url = h.get("spreadsheet_url", "")
+                    hc1, hc2, hc3 = st.columns([3, 2, 2])
+                    with hc1:
+                        st.caption(f"{h_status} {h_num} v{h_ver}")
+                    with hc2:
+                        st.caption(h.get("created_date", ""))
+                    with hc3:
+                        if h_url:
+                            st.link_button(t("open"), h_url, use_container_width=True)
 else:
     st.info(t("no_orders_yet"))
 

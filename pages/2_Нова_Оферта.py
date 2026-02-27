@@ -83,9 +83,62 @@ h1 { margin-bottom: 0.3rem !important; padding-bottom: 0 !important; }
 for _k, _d in [
     ("offer_items", []), ("offer_result", None),
     ("offer_email_preview", None), ("offer_form_ver", 0),
+    ("current_offer_number", None), ("current_spreadsheet_id", None),
+    ("current_offer_status", "draft"), ("current_offer_version", 1),
+    ("current_offer_base_id", None), ("current_offer_customer_id", None),
 ]:
     if _k not in st.session_state:
         st.session_state[_k] = _d
+
+# ── Edit bootstrap (triggered by dashboard Edit button) ────────────
+_edit = st.session_state.pop("editing_offer", None)
+if _edit:
+    _surl = _edit.get("spreadsheet_url", "")
+    _sid = _surl.split("/d/")[1].split("/")[0] if "/d/" in _surl else ""
+    st.session_state.current_offer_number = _edit["offer_number"]
+    st.session_state.current_spreadsheet_id = _sid
+    st.session_state.current_offer_status = _edit.get("status", "draft")
+    st.session_state.current_offer_version = _edit.get("version", 1)
+    st.session_state.current_offer_base_id = _edit.get("base_id", _edit["offer_number"])
+    st.session_state.current_offer_customer_id = _edit.get("customer_id", "")
+    st.session_state.offer_result = None
+    st.session_state.offer_email_preview = None
+    # Load items from existing offer spreadsheet
+    st.session_state.offer_items = []
+    if _sid:
+        _edit_mode = _edit.get("mode", "offer")
+        _tab = "Оферта" if _edit_mode == "offer" else "Ценова листа"
+        try:
+            _rows = read_sheet(_sid, f"'{_tab}'!A13:J100")
+            for _row in (_rows or []):
+                if not _row or not str(_row[0]).strip().isdigit():
+                    continue
+                _row = list(_row) + [""] * (10 - len(_row))
+                _code = str(_row[2]).strip()
+                _name = str(_row[3]).strip()
+                if _edit_mode == "offer":
+                    try:
+                        _qty = int(float(_row[5])) if _row[5] else 1
+                    except (ValueError, TypeError):
+                        _qty = 1
+                else:
+                    _qty = 1  # pricelist has no quantity column
+                _disc_raw = str(_row[7]).replace("%", "").strip()
+                try:
+                    _disc = float(_disc_raw) if _disc_raw else None
+                except (ValueError, TypeError):
+                    _disc = None
+                if _code:
+                    st.session_state.offer_items.append({
+                        "product_code": _code,
+                        "supplier_code": "",
+                        "name": _name,
+                        "quantity": _qty,
+                        "discount_override": _disc if _disc and _disc > 0 else None,
+                    })
+        except Exception:
+            pass
+    st.session_state.offer_form_ver += 1
 
 _v = st.session_state.offer_form_ver
 
@@ -130,9 +183,25 @@ with hc2:
         st.session_state.offer_result = None
         st.session_state.offer_email_preview = None
         st.session_state._offer_reset = True
+        st.session_state.current_offer_number = None
+        st.session_state.current_spreadsheet_id = None
+        st.session_state.current_offer_status = "draft"
+        st.session_state.current_offer_version = 1
+        st.session_state.current_offer_base_id = None
+        st.session_state.current_offer_customer_id = None
         if "offer_pdf_bytes" in st.session_state:
             del st.session_state.offer_pdf_bytes
         st.rerun()
+
+# ── Edit mode banner ──────────────────────────────────────────────
+_cur_ofr_num = st.session_state.get("current_offer_number")
+_cur_ofr_status = st.session_state.get("current_offer_status", "draft")
+_cur_ofr_ver = st.session_state.get("current_offer_version", 1)
+if _cur_ofr_num:
+    if _cur_ofr_status == "draft":
+        st.info(t("edit_offer_banner", num=_cur_ofr_num))
+    else:
+        st.warning(t("edit_offer_revision_banner", num=_cur_ofr_num, ver=_cur_ofr_ver + 1))
 
 # ── Controls bar ──────────────────────────────────────────────────
 customers = load_customers()
@@ -141,11 +210,19 @@ customer_names = {c["company_name"]: c["customer_id"] for c in customers}
 bar1, bar2, bar3, bar4, bar5, bar6 = st.columns([3, 2, 0.8, 1, 1, 0.8])
 
 with bar1:
+    _edit_cust_idx = None
+    _edit_cust_id = st.session_state.get("current_offer_customer_id", "")
+    if _edit_cust_id:
+        _cust_name_list = list(customer_names.keys())
+        for _ci, (_cn, _cid) in enumerate(customer_names.items()):
+            if _cid == _edit_cust_id:
+                _edit_cust_idx = _ci
+                break
     selected_name = st.selectbox(
         t("customer"),
         options=list(customer_names.keys()),
         key=f"ofr_cust_{_v}",
-        index=None,
+        index=_edit_cust_idx,
         placeholder=t("select_customer_placeholder"),
     )
 
@@ -223,22 +300,38 @@ if ready:
             request["custom_discounts"] = [
                 {"name": "Специална отстъпка", "percentage": custom_discount_pct}
             ]
+        # Attach edit context so generate_offer knows it's an overwrite/revision
+        if st.session_state.get("current_offer_number"):
+            request["editing_offer_number"] = st.session_state.current_offer_number
+            request["editing_spreadsheet_id"] = st.session_state.current_spreadsheet_id or ""
+            request["editing_status"] = st.session_state.current_offer_status
+            request["editing_base_id"] = st.session_state.current_offer_base_id or st.session_state.current_offer_number
+            request["editing_version"] = st.session_state.current_offer_version
 
         with st.spinner(t("generating")):
             try:
-                url = generate_offer(request)
                 import json
                 from pathlib import Path
 
+                gen_result = generate_offer(request)
+                url = gen_result["url"]
+                offer_number = gen_result["offer_number"]
+                spreadsheet_id = gen_result["spreadsheet_id"]
+                pdf_url = gen_result["pdf_url"]
+
+                # Update current edit context for subsequent regenerations
+                st.session_state.current_offer_number = offer_number
+                st.session_state.current_spreadsheet_id = spreadsheet_id
+                # Status stays "draft" until explicitly sent
+
+                # Read pdf_path from tmp file (not returned by generate_offer)
                 tmp_dir = Path(__file__).resolve().parent.parent / ".tmp"
-                offer_files = sorted(tmp_dir.glob("*_data.json"), key=lambda f: f.stat().st_mtime)
-                pdf_path = pdf_url = offer_number = ""
-                if offer_files:
-                    with open(offer_files[-1], encoding="utf-8") as f:
+                offer_file = tmp_dir / f"{offer_number.replace('/', '-')}_data.json"
+                pdf_path = ""
+                if offer_file.exists():
+                    with open(offer_file, encoding="utf-8") as f:
                         saved = json.load(f)
                     pdf_path = saved.get("pdf_path", "")
-                    pdf_url = saved.get("pdf_url", "")
-                    offer_number = saved.get("offer_number", "")
 
                 st.session_state.offer_result = {
                     "url": url,

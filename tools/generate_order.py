@@ -34,7 +34,7 @@ from tools.format_offer_sheet import format_offer_sheet
 from tools.generate_offer import _group_and_hide_columns
 from tools.google_auth import get_sheets_service
 from tools.offer_log import update_offer_status
-from tools.sheets_api import append_sheet, read_sheet, write_sheet
+from tools.sheets_api import append_sheet, delete_spreadsheet, read_sheet, write_sheet
 
 if hasattr(sys.stdout, "buffer") and getattr(sys.stdout, "encoding", "").lower() not in ("utf-8", "utf8"):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -320,6 +320,8 @@ def _log_order(
     total_incl_vat: float,
     notes: str,
     spreadsheet_url: str,
+    version: int = 1,
+    base_id: str = "",
 ) -> None:
     """Log order to the Orders tab."""
     row = [
@@ -338,8 +340,52 @@ def _log_order(
         "",  # submitted_date
         notes,
         spreadsheet_url,
+        str(version),          # P: version number
+        base_id or order_number,  # Q: base document ID
     ]
-    append_sheet(MASTER_CATALOG_ID, "'Orders'!A:O", [row])
+    append_sheet(MASTER_CATALOG_ID, "'Orders'!A:Q", [row])
+
+
+def _update_order_log_row(
+    order_number: str,
+    delivery_date: str,
+    delivery_terms: str,
+    payment_terms: str,
+    total_excl_vat: float,
+    total_incl_vat: float,
+    notes: str,
+    spreadsheet_url: str,
+    sales_agent_code: str,
+) -> bool:
+    """Overwrite the mutable fields of an existing draft order row in-place.
+
+    Updates date, delivery info, totals, notes, spreadsheet_url.
+    Returns True if found and updated.
+    """
+    rows = read_sheet(MASTER_CATALOG_ID, "'Orders'!A:A")
+    if not rows or len(rows) < 2:
+        return False
+
+    for i, row in enumerate(rows[1:], start=2):  # 1-based, skip header
+        if row and row[0] == order_number:
+            updated = [
+                date.today().strftime("%Y-%m-%d"),  # F
+                delivery_date,                       # G
+                delivery_terms,                      # H
+                payment_terms,                       # I
+                f"{total_excl_vat:.2f}",             # J
+                f"{total_incl_vat:.2f}",             # K
+                "draft",                             # L (keep as draft)
+                "",                                  # M (submitted_date cleared)
+                notes,                               # N
+                spreadsheet_url,                     # O
+            ]
+            write_sheet(MASTER_CATALOG_ID, f"'Orders'!F{i}:O{i}", [updated])
+            # Also update sales agent (col C)
+            write_sheet(MASTER_CATALOG_ID, f"'Orders'!C{i}", [[sales_agent_code]])
+            return True
+
+    return False
 
 
 def _get_pdf_url(spreadsheet_id: str, sheet_id: int) -> str:
@@ -358,8 +404,18 @@ def _get_pdf_url(spreadsheet_id: str, sheet_id: int) -> str:
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
-def generate_order(request: dict | None = None) -> str:
-    """Generate an order from a request dict or .tmp/order_request.json."""
+def generate_order(request: dict | None = None) -> dict:
+    """Generate an order from a request dict or .tmp/order_request.json.
+
+    Returns a dict with keys: url, order_number, spreadsheet_id, pdf_url.
+
+    Edit context (optional keys in request):
+      editing_order_number   — existing order ID being edited
+      editing_spreadsheet_id — old spreadsheet to delete (draft overwrite only)
+      editing_status         — "draft" | "submitted" (determines overwrite vs revision)
+      editing_base_id        — base_id to carry forward for revisions
+      editing_version        — current version number (revision will increment)
+    """
     if request is None:
         request_file = TMP_DIR / "order_request.json"
         if not request_file.exists():
@@ -371,6 +427,13 @@ def generate_order(request: dict | None = None) -> str:
     items = request["items"]
     offer_number = request.get("offer_number", "")
     custom_discounts = request.get("custom_discounts", [])
+
+    # Extract edit context
+    editing_order_number = request.get("editing_order_number")
+    editing_spreadsheet_id = request.get("editing_spreadsheet_id")
+    editing_status = request.get("editing_status", "draft")
+    editing_base_id = request.get("editing_base_id", "")
+    editing_version = int(request.get("editing_version") or 1)
 
     print(f"Generating order for customer {customer_id}...")
 
@@ -390,9 +453,23 @@ def generate_order(request: dict | None = None) -> str:
     # Calculate prices (using pcs quantities for discount engine)
     result = calculate_offer_lines(items, customer, rules, custom_discounts, products)
 
-    # Generate order number
-    order_number = _get_next_order_number()
-    print(f"  Order number: {order_number}")
+    # Determine order number and versioning
+    if not editing_order_number:
+        # Fresh creation
+        order_number = _get_next_order_number()
+        version = 1
+        base_id = order_number
+    elif editing_status == "draft":
+        # Draft overwrite — reuse same ID, no new version
+        order_number = editing_order_number
+        version = 1
+        base_id = editing_base_id or editing_order_number
+    else:
+        # Post-submit revision — new ID, incremented version, same base_id
+        order_number = _get_next_order_number()
+        version = editing_version + 1
+        base_id = editing_base_id or editing_order_number
+    print(f"  Order number: {order_number} (v{version})")
 
     # Build sheet content
     header_rows = _build_order_header(order_number, offer_number, customer, branding, request)
@@ -471,17 +548,39 @@ def generate_order(request: dict | None = None) -> str:
     actual_excl = round(actual_excl, 2)
     actual_incl = round(actual_excl + actual_vat, 2)
 
+    # Delete old draft spreadsheet before logging the new one
+    if editing_order_number and editing_status == "draft" and editing_spreadsheet_id:
+        try:
+            delete_spreadsheet(editing_spreadsheet_id)
+            print(f"  Deleted old draft spreadsheet: {editing_spreadsheet_id}")
+        except Exception as e:
+            print(f"  Warning: could not delete old draft sheet: {e}")
+
     # Log to Orders tab
     sales_agent = request.get("sales_agent_code", branding.get("sales_agent_sap_code", "12104"))
-    _log_order(
-        order_number, offer_number, sales_agent, customer,
-        request.get("delivery_date", ""),
-        request.get("delivery_terms", ""),
-        request.get("payment_terms", ""),
-        actual_excl, actual_incl,
-        request.get("notes", ""),
-        url,
-    )
+    if editing_order_number and editing_status == "draft":
+        _update_order_log_row(
+            order_number,
+            request.get("delivery_date", ""),
+            request.get("delivery_terms", ""),
+            request.get("payment_terms", ""),
+            actual_excl, actual_incl,
+            request.get("notes", ""),
+            url,
+            sales_agent,
+        )
+    else:
+        _log_order(
+            order_number, offer_number, sales_agent, customer,
+            request.get("delivery_date", ""),
+            request.get("delivery_terms", ""),
+            request.get("payment_terms", ""),
+            actual_excl, actual_incl,
+            request.get("notes", ""),
+            url,
+            version=version,
+            base_id=base_id,
+        )
     print("  Logged to Orders tab")
 
     # Update offer status if this came from an offer
@@ -512,7 +611,14 @@ def generate_order(request: dict | None = None) -> str:
     print(f"\n  Order ready: {url}")
     print(f"  PDF export (landscape A4): {pdf_url}")
 
-    return url
+    return {
+        "url": url,
+        "order_number": order_number,
+        "spreadsheet_id": spreadsheet_id,
+        "pdf_url": pdf_url,
+        "version": version,
+        "base_id": base_id,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -520,4 +626,5 @@ def generate_order(request: dict | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    url = generate_order()
+    result = generate_order()
+    url = result["url"] if isinstance(result, dict) else result

@@ -220,14 +220,31 @@ class _RomstalPDF(FPDF):
             self.multi_cell(0, 4, footer)
 
     def _draw_table_header(self, headers: list[str], col_w: list[int]):
-        """Draw a table header row (blue background, white text)."""
-        self.set_fill_color(*BRAND_BLUE)
-        self.set_draw_color(*TABLE_BORDER)
-        self.set_line_width(0.1)
+        """Draw a table header row with auto-wrapping text (blue background, white text)."""
         self._set(size=8, bold=True, color=WHITE)
+
+        # Measure each header to get uniform row height
+        header_h = HEADER_H
         for h, w in zip(headers, col_w):
-            self.cell(w, HEADER_H, h, border=1, align="C", fill=True)
-        self.ln()
+            hh = self.multi_cell(w, LINE_H, h, dry_run=True, output="HEIGHT")
+            header_h = max(header_h, hh)
+
+        y0 = self.get_y()
+        x = self.get_x()
+        for h, w in zip(headers, col_w):
+            # Draw uniform background + border rectangle
+            self.set_fill_color(*BRAND_BLUE)
+            self.set_draw_color(*TABLE_BORDER)
+            self.set_line_width(0.1)
+            self.rect(x, y0, w, header_h, style="FD")
+            # Overlay wrapped text (no border/fill — rectangle already drawn)
+            self.set_xy(x, y0)
+            self._set(size=8, bold=True, color=WHITE)
+            self.multi_cell(w, LINE_H, h, border=0, align="C", fill=False,
+                            new_x="RIGHT", new_y="TOP")
+            x += w
+
+        self.set_y(y0 + header_h)
 
     def _draw_row_image(self, img_bytes: bytes | None, x: float, y: float):
         """Embed a product thumbnail at absolute (x, y) position within the image cell."""
@@ -285,20 +302,20 @@ def build_offer_pdf(
 
     if mode == "offer":
         if show_discount:
-            col_w = [IMG_COL_W, 6, 23, 0, 17, 10, 24, 15, 34, 34]
+            col_w = [IMG_COL_W, 6, 23, 0, 25, 10, 24, 15, 34, 34]
             headers = ["Фото", "#", "Код", "Наименование", "Марка", "К-во",
                        "Ед. цена EUR", "Отстъпка %", "Нето EUR (без ДДС)", "Общо EUR (без ДДС)"]
         else:
-            col_w = [IMG_COL_W, 6, 23, 0, 17, 10, 40, 40]
+            col_w = [IMG_COL_W, 6, 23, 0, 25, 10, 40, 40]
             headers = ["Фото", "#", "Код", "Наименование", "Марка", "К-во",
                        "Нето EUR (без ДДС)", "Общо EUR (без ДДС)"]
     else:  # pricelist
         if show_discount:
-            col_w = [IMG_COL_W, 6, 23, 0, 17, 17, 24, 15, 35, 35]
+            col_w = [IMG_COL_W, 5, 20, 0, 22, 24, 20, 12, 24, 24]
             headers = ["Фото", "#", "Код", "Наименование", "Марка", "Категория",
                        "Ед. цена EUR", "Отстъпка %", "Нето EUR (без ДДС)", "Нето EUR (с ДДС)"]
         else:
-            col_w = [IMG_COL_W, 6, 23, 0, 17, 17, 37, 37]
+            col_w = [IMG_COL_W, 6, 22, 0, 25, 30, 30, 30]
             headers = ["Фото", "#", "Код", "Наименование", "Марка", "Категория",
                        "Нето EUR (без ДДС)", "Нето EUR (с ДДС)"]
 
@@ -392,6 +409,7 @@ def build_offer_pdf(
         _draw_data_row(
             pdf, row_vals, col_w, align_map, fill,
             NAME_COL, line.get("image_url", ""), img_cache,
+            wrap_cols={4, 5} if mode != "offer" else {4},
         )
 
     # ── Totals (offer mode only) ─────────────────────────────────────────────
@@ -495,15 +513,15 @@ def build_order_pdf(
     pdf.set_y(start_y + max_rows * 5 + 3)
 
     # ── Order Table ─────────────────────────────────────────────────────────
-    col_w = [IMG_COL_W, 6, 23, 0, 17, 12, 24, 15, 34, 34]
-    headers = ["Фото", "#", "Код", "Наименование", "Марка", "МЕ",
-               "Ед. цена EUR", "Отстъпка %", "Нето EUR (без ДДС)", "Общо EUR (без ДДС)"]
+    col_w = [IMG_COL_W, 6, 23, 0, 10, 12, 35, 35]
+    headers = ["Фото", "#", "Код", "Наименование", "К-во", "МЕ",
+               "Нето EUR (без ДДС)", "Общо EUR (без ДДС)"]
 
     # Name column (index 3) fills remaining space
     fixed_w = sum(w for i, w in enumerate(col_w) if i != 3)
     col_w[3] = max(25, page_w - fixed_w)
 
-    align_map = ["C", "R", "L", "L", "L", "C", "R", "R", "R", "R"]
+    align_map = ["C", "R", "L", "L", "C", "C", "R", "R"]
     NAME_COL = 3
 
     lines = result.get("lines", [])
@@ -556,10 +574,8 @@ def build_order_pdf(
             str(idx),
             line["product_code"],
             line["name"],
-            line["brand"],
+            str(quantity),
             measure_label,
-            f"{line['base_price']:.2f}",
-            f"{line['total_discount_pct']:.1f}%",
             f"{net_excl:.2f}",
             f"{line_total_excl:.2f}",
         ]
@@ -622,12 +638,16 @@ def _draw_data_row(
     name_col: int,
     img_url: str,
     img_cache: dict,
+    wrap_cols: set[int] | None = None,
 ) -> None:
     """Draw one table data row.
 
-    The name column uses multi_cell (word-wrap). All other columns use cell()
-    with truncation. Row height expands automatically if the name wraps.
+    Columns in wrap_cols (plus name_col) use multi_cell (word-wrap).
+    All other columns use cell() with truncation.
+    Row height expands automatically to fit the tallest wrapped column.
     """
+    effective_wrap = (wrap_cols or set()) | {name_col}
+
     bg = LIGHT_BLUE if fill else WHITE
     y_row = pdf.get_y()
     x_row = pdf.get_x()
@@ -635,15 +655,17 @@ def _draw_data_row(
     pdf.set_fill_color(*bg)
     pdf._set(size=8, color=DARK_TEXT)
 
-    # Calculate required row height from name column (dry run — no output)
-    name_text = row_vals[name_col] if name_col < len(row_vals) else ""
-    name_h = pdf.multi_cell(col_w[name_col], LINE_H, name_text, dry_run=True, output="HEIGHT")
-    row_h = max(ROW_H, name_h + 1)
+    # Calculate required row height from all wrapping columns (dry run — no output)
+    row_h = ROW_H
+    for i in effective_wrap:
+        if i < len(row_vals) and i < len(col_w):
+            h = pdf.multi_cell(col_w[i], LINE_H, row_vals[i], dry_run=True, output="HEIGHT")
+            row_h = max(row_h, h + 1)
 
-    # Draw all non-name cells with fixed row_h
+    # Draw all non-wrap cells with fixed row_h
     x = x_row
     for i, (val, w) in enumerate(zip(row_vals, col_w)):
-        if i == name_col:
+        if i in effective_wrap:
             x += w
             continue
         a = align_map[i] if i < len(align_map) else "L"
@@ -652,15 +674,18 @@ def _draw_data_row(
         pdf.cell(w, row_h, display, border=1, align=a, fill=fill)
         x += w
 
-    # Draw name column with word-wrap
-    pdf.set_xy(x_row + sum(col_w[:name_col]), y_row)
-    pdf.set_fill_color(*bg)
-    pdf._set(size=8, color=DARK_TEXT)
-    pdf.multi_cell(
-        col_w[name_col], LINE_H, name_text,
-        border=1, fill=fill, align="L",
-        new_x="RIGHT", new_y="TOP",
-    )
+    # Draw wrap columns with multi_cell (in column order, using absolute positioning)
+    for i in sorted(effective_wrap):
+        if i >= len(row_vals) or i >= len(col_w):
+            continue
+        pdf.set_xy(x_row + sum(col_w[:i]), y_row)
+        pdf.set_fill_color(*bg)
+        pdf._set(size=8, color=DARK_TEXT)
+        pdf.multi_cell(
+            col_w[i], LINE_H, row_vals[i],
+            border=1, fill=fill, align="L",
+            new_x="RIGHT", new_y="TOP",
+        )
 
     # Advance cursor past the row
     pdf.set_y(y_row + row_h)

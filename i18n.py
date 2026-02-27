@@ -186,6 +186,11 @@ Use the menu on the left to navigate:
     # --- Dashboard actions ---
     "edit": {"bg": "Редакция", "en": "Edit"},
     "edit_order_banner": {"bg": "Редактирате поръчка {num} — ще бъде създадена нова поръчка.", "en": "Editing order {num} — a new order will be created."},
+    "edit_order_draft_banner": {"bg": "Редактирате чернова {num} — генерирането ще презапише съществуващия документ.", "en": "Editing draft {num} — generating will overwrite the existing document."},
+    "edit_order_revision_banner": {"bg": "Редактирате изпратена поръчка {num} — генерирането ще създаде версия v{ver}.", "en": "Editing submitted order {num} — generating will create revision v{ver}."},
+    "edit_offer_banner": {"bg": "Редактирате чернова {num} — генерирането ще презапише съществуващия документ.", "en": "Editing draft {num} — generating will overwrite the existing document."},
+    "edit_offer_revision_banner": {"bg": "Редактирате изпратена оферта {num} — генерирането ще създаде версия v{ver}.", "en": "Editing sent offer {num} — generating will create revision v{ver}."},
+    "version_history": {"bg": "История ({n} по-стари версии)", "en": "History ({n} older version(s))"},
     "delete": {"bg": "Изтрий", "en": "Delete"},
     "confirm_delete_offer": {"bg": "Изтрий офертата {num}?", "en": "Delete offer {num}?"},
     "confirm_delete_order": {"bg": "Изтрий поръчката {num}?", "en": "Delete order {num}?"},
@@ -350,9 +355,9 @@ def render_navbar(current_page: str = "") -> None:
             + icon_path
             + "</svg>"
         )
-        desktop_links += f'<a href="{url}" class="nav-link{active_cls}">{label}</a>'
+        desktop_links += f'<a href="{url}" target="_self" class="nav-link{active_cls}">{label}</a>'
         mobile_links += (
-            f'<a href="{url}" class="mob-link{active_cls}">'
+            f'<a href="{url}" target="_self" class="mob-link{active_cls}">'
             f'<span class="mob-icon">{svg}</span>{label}</a>'
         )
 
@@ -371,12 +376,12 @@ def render_navbar(current_page: str = "") -> None:
 
     html = (
         '<nav id="wNavbar">'
-        '<a href="/" class="nav-logo">'
+        '<a href="/" target="_self" class="nav-logo">'
         '<span style="font-weight:700;color:#0086CE;font-size:1.1rem;letter-spacing:-0.02em">Romstal</span>'
         "</a>"
         f'<div class="nav-links">{desktop_links}</div>'
         '<div class="nav-actions">'
-        f'<a href="?lang={other_lang}" class="lang-toggle">{lang_label}</a>'
+        f'<a href="?lang={other_lang}" target="_self" class="lang-toggle">{lang_label}</a>'
         f'<button class="burger" onclick="{toggle_js}">'
         '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none"'
         ' viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">'

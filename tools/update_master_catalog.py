@@ -18,6 +18,7 @@ from pathlib import Path
 from tools.sheets_api import read_sheet, write_sheet, clear_sheet
 
 MASTER_CATALOG_ID = "1O1rD0PdKIIY8qKWkNsdElEcdsg1-JQQG1WmfuVXrUVY"
+PRICELIST_ID = "1gx6xQoGtH1KCPRq7ZSJe1ZmD2kvIQh8g3nzm8eFzXLk"
 MASTER_DB_TAB = "Master_Database"
 TMP_DIR = Path(__file__).resolve().parent.parent / ".tmp"
 
@@ -103,6 +104,71 @@ def _translate_subcategory(raw: str) -> str:
     return " / ".join(translated)
 
 
+def load_pricelist_raw() -> dict:
+    """Load pricelist keyed by SAP code → {name_bg, measure_unit}.
+    Used by ensure_baseline_entries() for Step 0 registration.
+    """
+    rows = read_sheet(PRICELIST_ID, "'Sheet1'!A:K")
+    data = {}
+    for row in rows[1:]:
+        if len(row) < 5:
+            continue
+        code = row[2].strip()
+        if code:
+            data[code] = {
+                "name_bg":      row[3] if len(row) > 3 else "",
+                "measure_unit": row[7] if len(row) > 7 else "",
+            }
+    return data
+
+
+def ensure_baseline_entries(codes: list, pricelist_data: dict) -> dict:
+    """Write Tier 0 records for requested codes that exist in the pricelist
+    but are NOT already in Master_Database (any tier).
+    Idempotent: never downgrades an existing record.
+    """
+    existing = load_existing_catalog()
+    to_write = []
+    not_in_pricelist = []
+
+    for code in codes:
+        if code in existing:
+            continue                              # already present — don't touch
+        pl = pricelist_data.get(code)
+        if not pl:
+            not_in_pricelist.append(code)
+            continue
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        row = [
+            code, code, "",                       # product_code, internal_code, supplier_code
+            pl.get("name_bg", ""),                # name
+            "", "", "",                           # brand, category, subcategory
+            pl.get("measure_unit", ""),           # measure_unit
+            "", "", "", "",                       # short_desc, long_desc, specs, features
+            "",                                   # image_url
+            "FALSE",                              # catalog_ready
+            now,                                  # last_updated
+        ]
+        to_write.append(row)
+
+    if to_write:
+        raw = read_sheet(MASTER_CATALOG_ID, f"'{MASTER_DB_TAB}'!A:A")
+        start_row = len(raw) + 1                  # next empty row (1-based, includes header)
+        write_sheet(
+            MASTER_CATALOG_ID,
+            f"'{MASTER_DB_TAB}'!A{start_row}",
+            to_write,
+        )
+        print(f"  Baseline: wrote {len(to_write)} Tier 0 records starting at row {start_row}")
+
+    already_present = len(codes) - len(to_write) - len(not_in_pricelist)
+    return {
+        "written": len(to_write),
+        "already_present": already_present,
+        "not_in_pricelist": not_in_pricelist,
+    }
+
+
 # Simplified column layout - single image_url instead of 3 image columns
 COLUMNS = [
     "product_code",        # A
@@ -119,7 +185,7 @@ COLUMNS = [
     "features",            # L
     "image_url",           # M - single small image
     "catalog_ready",       # N
-    "last_synced",         # O
+    "last_updated",        # O
 ]
 
 
@@ -200,7 +266,7 @@ def build_row(product: dict) -> list[str]:
         enriched.get("features", ""),                   # features
         f'=HYPERLINK("{image_url}")' if image_url else "",  # image_url (clickable link)
         "TRUE" if enriched else "FALSE",                # catalog_ready
-        now,                                            # last_synced
+        now,                                            # last_updated
     ]
 
     return row
