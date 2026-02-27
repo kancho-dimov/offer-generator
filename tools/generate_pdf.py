@@ -274,6 +274,7 @@ def build_offer_pdf(
     branding: dict,
     request: dict,
     result: dict,
+    output_path: Path | None = None,
 ) -> Path:
     """
     Generate an offer or pricelist PDF with product thumbnail images.
@@ -443,7 +444,7 @@ def build_offer_pdf(
 
     # ── Save ────────────────────────────────────────────────────────────────
     TMP_DIR.mkdir(exist_ok=True)
-    pdf_path = TMP_DIR / f"{offer_number.replace('/', '-')}_offer.pdf"
+    pdf_path = output_path if output_path is not None else TMP_DIR / f"{offer_number.replace('/', '-')}_offer.pdf"
     pdf.output(str(pdf_path))
     return pdf_path
 

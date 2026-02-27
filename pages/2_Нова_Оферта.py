@@ -207,7 +207,7 @@ if _cur_ofr_num:
 customers = load_customers()
 customer_names = {c["company_name"]: c["customer_id"] for c in customers}
 
-bar1, bar2, bar3, bar4, bar5, bar6 = st.columns([3, 2, 0.8, 1, 1, 0.8])
+bar1, bar2, bar3, bar4, bar5 = st.columns([3, 2, 0.8, 1, 0.8])
 
 with bar1:
     _edit_cust_idx = None
@@ -240,12 +240,9 @@ with bar3:
     )
 
 with bar4:
-    show_discount = st.checkbox(t("show_discounts"), value=True, key=f"ofr_show_disc_{_v}")
-
-with bar5:
     show_vat = st.checkbox(t("show_vat"), value=True, key=f"ofr_show_vat_{_v}")
 
-with bar6:
+with bar5:
     st.write("")
     with st.popover("⚙️", use_container_width=True):
 
@@ -290,7 +287,7 @@ if ready:
                 }
                 for i in st.session_state.offer_items
             ],
-            "show_discount": show_discount,
+            "show_discount": True,  # always show for CS/internal sheet; customer PDF is stripped separately
             "show_vat": show_vat,
             "discount_level": discount_level,
             "validity_days": validity,
@@ -552,6 +549,29 @@ if st.session_state.offer_result:
             if st.button(t("approve_send"), type="primary", use_container_width=True, key="ofr_approve"):
                 with st.spinner(t("sending_email")):
                     try:
+                        import json as _json
+                        from pathlib import Path as _Path
+                        from tools.generate_pdf import build_offer_pdf as _build_offer_pdf
+
+                        # Regenerate PDF without discounts for the customer copy
+                        _tmp = _Path(__file__).resolve().parent.parent / ".tmp"
+                        _data_file = _tmp / f"{preview['offer_number'].replace('/', '-')}_data.json"
+                        _customer_pdf = preview.get("pdf_path", "")
+                        if _data_file.exists():
+                            try:
+                                with open(_data_file, encoding="utf-8") as _f:
+                                    _d = _json.load(_f)
+                                _req = {**_d.get("request", {}), "show_discount": False}
+                                _cust_pdf_path = _tmp / f"{preview['offer_number'].replace('/', '-')}_customer.pdf"
+                                _build_offer_pdf(
+                                    _d["offer_number"], _d["mode"],
+                                    _d["customer"], _d["branding"], _req, _d["result"],
+                                    output_path=_cust_pdf_path,
+                                )
+                                _customer_pdf = str(_cust_pdf_path)
+                            except Exception:
+                                pass  # fall back to original PDF
+
                         send_offer_to_customer(
                             preview["offer_number"], preview["customer"],
                             preview["spreadsheet_url"], preview["pdf_url"],
@@ -559,7 +579,7 @@ if st.session_state.offer_result:
                             subject_override=edited_subject,
                             body_text_override=edited_body,
                             email_override=edited_to,
-                            pdf_path=preview.get("pdf_path", ""),
+                            pdf_path=_customer_pdf,
                         )
                         st.session_state.offer_email_preview = None
                         st.success(f"✅ {t('sent_to')} {preview['to']}")
